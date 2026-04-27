@@ -156,4 +156,5 @@ app.listen(port, () => {
     console.log(`🚀 السيرفر شغال على بورت: ${port}`);
     console.log(`🔗 الرابط المحلي: http://localhost:${port}`);
     console.log(`=================================`);
+module.exports = app;
 });
