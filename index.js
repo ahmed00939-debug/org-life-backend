@@ -9,121 +9,155 @@ const { createClient } = require('@supabase/supabase-js');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 1. إعدادات الحماية والـ Middleware
 app.use(express.json());
 app.use(cors());
 app.use(helmet());
 
-// 2. الربط بـ Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// دالة فحص الاتصال (عشان تطمن أول ما تشغل)
-async function testConnection() {
-    try {
-        const { error } = await supabase.from('users').select('count', { count: 'exact', head: true });
-        if (error) {
-            console.log("❌ مشكلة في بيانات Supabase: ", error.message);
-        } else {
-            console.log("✅ تم الاتصال بـ Supabase بنجاح! 🚀");
-        }
-    } catch (err) {
-        console.log("❌ تعذر الوصول لسيرفر Supabase.. تأكد من الإنترنت.");
-    }
-}
+// ==========================================
+// 🛡️ Middleware: حارس الأمن (للتأكد من تسجيل الدخول)
+// ==========================================
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
 
-// 3. المسارات (End Points)
+    if (!token) return res.status(401).json({ error: "غير مصرح لك بالدخول، برجاء تسجيل الدخول أولاً." });
 
-// فحص السيرفر
-app.get('/', (req, res) => {
-    res.json({ message: "🚀 Org Life Server is Running!" });
-});
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ error: "التوكن غير صالح أو انتهت صلاحيته." });
+        req.user = user; 
+        next();
+    });
+};
 
-// 🟢 مسار التسجيل (Register)
+// ==========================================
+// 🟢 1. مسارات المستخدمين (Auth)
+// ==========================================
+
+// التسجيل
 app.post('/api/register', async (req, res) => {
     try {
         const { user_fullname, user_email, password } = req.body;
-
         if (!user_fullname || !user_email || !password) {
-            return res.status(400).json({ error: "برجاء إدخال (user_fullname, user_email, password)" });
+            return res.status(400).json({ error: "الاسم والإيميل والباسورد مطلوبين" });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const { data, error } = await supabase
             .from('users')
-            .insert([{ 
-                user_fullname: user_fullname, 
-                user_email: user_email, 
-                password: hashedPassword 
-            }])
+            .insert([{ user_fullname, user_email, user_password: hashedPassword }]) // حسب جدولك الجديد
             .select();
 
         if (error) {
-            if (error.code === '23505') return res.status(400).json({ error: "الإيميل ده موجود قبل كدة" });
-            return res.status(400).json({ error: error.message });
+            if (error.code === '23505') return res.status(400).json({ error: "الإيميل مسجل مسبقاً" });
+            throw error;
         }
-
-        res.status(201).json({ 
-            message: "تم إنشاء الحساب بنجاح ✅", 
-            user: { id: data[0].user_id, name: data[0].user_fullname, email: data[0].user_email } 
-        });
-
-    } catch (err) {
-        res.status(500).json({ error: "خطأ داخلي في السيرفر" });
-    }
+        res.status(201).json({ message: "تم التسجيل بنجاح ✅", user: { id: data[0].user_id, name: data[0].user_fullname, email: data[0].user_email } });
+    } catch (err) { res.status(500).json({ error: "خطأ في السيرفر" }); }
 });
 
-// 🔵 مسار تسجيل الدخول (Login)
+// تسجيل الدخول
 app.post('/api/login', async (req, res) => {
     try {
         const { user_email, password } = req.body;
+        const { data: users, error } = await supabase.from('users').select('*').eq('user_email', user_email);
 
-        if (!user_email || !password) {
-            return res.status(400).json({ error: "برجاء إدخال الإيميل والباسورد" });
-        }
-
-        const { data: users, error } = await supabase
-            .from('users')
-            .select('*')
-            .eq('user_email', user_email);
-
-        if (error || !users || users.length === 0) {
-            return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
-        }
+        if (error || !users.length) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
 
         const user = users[0];
-        const isMatch = await bcrypt.compare(password, user.password);
+        const isMatch = await bcrypt.compare(password, user.user_password);
+        if (!isMatch) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
 
-        if (!isMatch) {
-            return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
-        }
+        const token = jwt.sign({ userId: user.user_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+        res.json({ token, user: { id: user.user_id, name: user.user_fullname, email: user.user_email } });
+    } catch (err) { res.status(500).json({ error: "خطأ في السيرفر" }); }
+});
 
-        // إنشاء التوكن
-        const token = jwt.sign(
-            { userId: user.user_id, email: user.user_email },
-            process.env.JWT_SECRET || 'OrgLife_2026_Secret',
-            { expiresIn: '7d' }
-        );
+// ==========================================
+// 📦 2. مسارات المنتجات (Public)
+// ==========================================
 
-        res.status(200).json({ 
-            message: "تم تسجيل الدخول بنجاح 👋", 
-            token,
-            user: { id: user.user_id, name: user.user_fullname, email: user.user_email }
-        });
+// جلب كل المنتجات
+app.get('/api/products', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('products').select('*, product_category(category_name)');
+        if (error) throw error;
+        res.status(200).json(data);
+    } catch (err) { res.status(500).json({ error: "خطأ في جلب المنتجات" }); }
+});
 
+// ==========================================
+// 🐓 3. مسارات القطعان (Protected)
+// ==========================================
+
+// إضافة قطيع
+app.post('/api/flocks', authenticateToken, async (req, res) => {
+    try {
+        const { flock_animaltype, flock_quantity } = req.body;
+        if (!flock_animaltype || !flock_quantity) return res.status(400).json({ error: "نوع القطيع والكمية مطلوبين" });
+
+        const { data, error } = await supabase
+            .from('flocks')
+            .insert([{ flock_animaltype, flock_quantity, user_id: req.user.userId }])
+            .select();
+
+        if (error) throw error;
+        res.status(201).json({ message: "تم إضافة القطيع ✅", flock: data[0] });
+    } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+// جلب قطعان المستخدم فقط
+app.get('/api/flocks', authenticateToken, async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('flocks').select('*').eq('user_id', req.user.userId);
+        if (error) throw error;
+        res.status(200).json(data);
+    } catch (err) { res.status(500).json({ error: "خطأ في جلب البيانات" }); }
+});
+
+// ==========================================
+// 🛒 4. مسارات الطلبات - Orders (Protected)
+// ==========================================
+
+// إنشاء طلب جديد
+app.post('/api/orders', authenticateToken, async (req, res) => {
+    try {
+        const { order_delivery_address } = req.body;
+        
+        const { data, error } = await supabase
+            .from('orders')
+            .insert([{ order_delivery_address, user_id: req.user.userId }])
+            .select();
+
+        if (error) throw error;
+        res.status(201).json({ message: "تم إنشاء الطلب ✅", order: data[0] });
+    } catch (err) { res.status(500).json({ error: "خطأ في إنشاء الطلب" }); }
+});
+
+// ==========================================
+// 🚀 تشغيل وفحص السيرفر
+// ==========================================
+async function startServer() {
+    console.log("====================================");
+    console.log("⏳ جاري الاتصال بـ Supabase...");
+    
+    try {
+        const { error } = await supabase.from('users').select('count', { count: 'exact', head: true });
+        if (error) throw error;
+        console.log("✅ تم الاتصال بـ Supabase بنجاح! 🚀");
     } catch (err) {
-        res.status(500).json({ error: "خطأ في السيرفر" });
+        console.log("❌ فشل الاتصال بقاعدة البيانات. تأكد من المفاتيح والإنترنت.");
     }
-});
 
-// 4. تشغيل السيرفر
-app.listen(port, () => {
-    console.log(`=================================`);
-    console.log(`🚀 السيرفر شغال على بورت: ${port}`);
-    console.log(`=================================`);
-    testConnection(); // بيفحص الاتصال بعد ما السيرفر يقوم مباشرة
-});
+    app.listen(port, () => {
+        console.log(`🚀 السيرفر شغال على بورت: ${port}`);
+        console.log("====================================");
+    });
+}
 
+startServer();
 module.exports = app;
