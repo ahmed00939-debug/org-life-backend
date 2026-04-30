@@ -4,41 +4,40 @@ const cors = require('cors');
 const helmet = require('helmet');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const rateLimit = require('express-rate-limit');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 1. Middleware الطبقات الدفاعية
-app.use(express.json()); 
-app.use(cors()); 
-app.use(helmet()); 
+// 1. إعدادات الحماية والـ Middleware
+app.use(express.json());
+app.use(cors());
+app.use(helmet());
 
-// تحديد عدد الطلبات لحماية السيرفر من الهجمات
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, 
-    max: 100,
-    message: { error: 'طلبات كتير جداً، جرب تاني كمان ربع ساعة.' }
-});
-app.use('/api/', limiter);
-
-// 2. إعداد Supabase
+// 2. الربط بـ Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-    console.error('❌ خطأ كارثي: مفاتيح Supabase مش موجودة في الـ .env');
-    process.exit(1);
-}
-
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// 3. المسارات (Routes)
+// دالة فحص الاتصال (عشان تطمن أول ما تشغل)
+async function testConnection() {
+    try {
+        const { error } = await supabase.from('users').select('count', { count: 'exact', head: true });
+        if (error) {
+            console.log("❌ مشكلة في بيانات Supabase: ", error.message);
+        } else {
+            console.log("✅ تم الاتصال بـ Supabase بنجاح! 🚀");
+        }
+    } catch (err) {
+        console.log("❌ تعذر الوصول لسيرفر Supabase.. تأكد من الإنترنت.");
+    }
+}
 
-// مسار فحص السيرفر
+// 3. المسارات (End Points)
+
+// فحص السيرفر
 app.get('/', (req, res) => {
-    res.json({ status: 'online', project: 'Org Life Backend', version: '1.0.0' });
+    res.json({ message: "🚀 Org Life Server is Running!" });
 });
 
 // 🟢 مسار التسجيل (Register)
@@ -46,47 +45,33 @@ app.post('/api/register', async (req, res) => {
     try {
         const { user_fullname, user_email, password } = req.body;
 
-        // Validation: التأكد إن البيانات كاملة ومنطقية
         if (!user_fullname || !user_email || !password) {
-            return res.status(400).json({ error: 'كل الخانات مطلوبة (الاسم، الإيميل، الباسورد)' });
+            return res.status(400).json({ error: "برجاء إدخال (user_fullname, user_email, password)" });
         }
 
-        if (password.length < 6) {
-            return res.status(400).json({ error: 'الباسورد لازم يكون على الأقل 6 حروف' });
-        }
-
-        // تشفير الباسورد
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // إدخال البيانات في Supabase
         const { data, error } = await supabase
             .from('users')
-            .insert([
-                { 
-                    user_fullname: user_fullname, 
-                    user_email: user_email, 
-                    password: hashedPassword 
-                }
-            ])
+            .insert([{ 
+                user_fullname: user_fullname, 
+                user_email: user_email, 
+                password: hashedPassword 
+            }])
             .select();
 
         if (error) {
-            if (error.code === '23505') return res.status(400).json({ error: 'هذا الإيميل مسجل مسبقاً' });
-            throw error;
+            if (error.code === '23505') return res.status(400).json({ error: "الإيميل ده موجود قبل كدة" });
+            return res.status(400).json({ error: error.message });
         }
 
         res.status(201).json({ 
-            message: 'تم إنشاء الحساب بنجاح ✅', 
-            user: { 
-                id: data[0].user_id, 
-                name: data[0].user_fullname, 
-                email: data[0].user_email 
-            }
+            message: "تم إنشاء الحساب بنجاح ✅", 
+            user: { id: data[0].user_id, name: data[0].user_fullname, email: data[0].user_email } 
         });
 
     } catch (err) {
-        console.error('Register Error:', err.message);
-        res.status(500).json({ error: 'حدث خطأ في السيرفر أثناء التسجيل' });
+        res.status(500).json({ error: "خطأ داخلي في السيرفر" });
     }
 });
 
@@ -96,57 +81,49 @@ app.post('/api/login', async (req, res) => {
         const { user_email, password } = req.body;
 
         if (!user_email || !password) {
-            return res.status(400).json({ error: 'دخل الإيميل والباسورد يا هندسة' });
+            return res.status(400).json({ error: "برجاء إدخال الإيميل والباسورد" });
         }
 
-        // جلب المستخدم من الداتا بيز
         const { data: users, error } = await supabase
             .from('users')
             .select('*')
             .eq('user_email', user_email);
 
         if (error || !users || users.length === 0) {
-            return res.status(401).json({ error: 'الإيميل أو الباسورد غلط' });
+            return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
         }
 
         const user = users[0];
-
-        // التحقق من الباسورد
         const isMatch = await bcrypt.compare(password, user.password);
+
         if (!isMatch) {
-            return res.status(401).json({ error: 'الإيميل أو الباسورد غلط' });
+            return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
         }
 
-        // إنشاء التوكن JWT
+        // إنشاء التوكن
         const token = jwt.sign(
             { userId: user.user_id, email: user.user_email },
-            process.env.JWT_SECRET || 'secret_key_123',
+            process.env.JWT_SECRET || 'OrgLife_2026_Secret',
             { expiresIn: '7d' }
         );
 
         res.status(200).json({ 
-            message: 'أهلاً بك مرة أخرى! 👋', 
+            message: "تم تسجيل الدخول بنجاح 👋", 
             token,
-            user: { 
-                id: user.user_id, 
-                name: user.user_fullname, 
-                email: user.user_email 
-            }
+            user: { id: user.user_id, name: user.user_fullname, email: user.user_email }
         });
 
     } catch (err) {
-        console.error('Login Error:', err.message);
-        res.status(500).json({ error: 'حدث خطأ في السيرفر أثناء تسجيل الدخول' });
+        res.status(500).json({ error: "خطأ في السيرفر" });
     }
 });
 
-// 4. تشغيل السيرفر (Production handling for Vercel)
-if (process.env.NODE_ENV !== 'production') {
-    app.listen(port, () => {
-        console.log(`====================================`);
-        console.log(`🚀 السيرفر شغال محلياً على بورت: ${port}`);
-        console.log(`====================================`);
-    });
-}
+// 4. تشغيل السيرفر
+app.listen(port, () => {
+    console.log(`=================================`);
+    console.log(`🚀 السيرفر شغال على بورت: ${port}`);
+    console.log(`=================================`);
+    testConnection(); // بيفحص الاتصال بعد ما السيرفر يقوم مباشرة
+});
 
 module.exports = app;
