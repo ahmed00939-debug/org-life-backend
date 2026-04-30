@@ -159,5 +159,10 @@ async function startServer() {
     });
 }
 
-startServer();
+// المتغير ده Vercel بتضيفه تلقائي من عندها، 
+// فلو مش موجود (يعني إحنا على جهازك)، شغل السيرفر عادي.
+if (!process.env.VERCEL) {
+    startServer();
+}
+
 module.exports = app;
