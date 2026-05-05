@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -57,7 +57,10 @@ app.post('/api/register', async (req, res) => {
             throw error;
         }
         res.status(201).json({ message: "تم التسجيل بنجاح ✅", user: { id: data[0].user_id, name: data[0].user_fullname, email: data[0].user_email } });
-    } catch (err) { res.status(500).json({ error: "خطأ في السيرفر" }); }
+    } catch (err) { 
+    console.error(err);
+    res.status(500).json({ error: "خطأ في السيرفر" }); 
+}
 });
 
 // تسجيل الدخول
