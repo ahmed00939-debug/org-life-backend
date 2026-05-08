@@ -49,7 +49,7 @@ app.post('/api/register', async (req, res) => {
 
         const { data, error } = await supabase
             .from('users')
-            .insert([{ user_fullname, user_email, user_password: hashedPassword }]) // حسب جدولك الجديد
+            .insert([{ user_fullname, user_email, user_password: hashedPassword }]) 
             .select();
 
         if (error) {
@@ -136,6 +136,51 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         if (error) throw error;
         res.status(201).json({ message: "تم إنشاء الطلب ✅", order: data[0] });
     } catch (err) { res.status(500).json({ error: "خطأ في إنشاء الطلب" }); }
+});
+
+// ==========================================
+// 🧮 5. مسارات حسابات العلف - Calculations (Protected)
+// ==========================================
+
+// حفظ عملية حساب جديدة (بعد ما اليوزر يدوس Calculate)
+app.post('/api/calculations', authenticateToken, async (req, res) => {
+    try {
+        const { corn_amount, wheat_amount, soybean_amount, feeding_frequency } = req.body;
+
+        const { data, error } = await supabase
+            .from('feeding_calculations')
+            .insert([{ 
+                user_id: req.user.userId, 
+                corn_amount: corn_amount || 0, 
+                wheat_amount: wheat_amount || 0, // شيلنا الكالسيوم وحطينا القمح
+                soybean_amount: soybean_amount || 0,
+                feeding_frequency: feeding_frequency || 1
+            }])
+            .select();
+
+        if (error) throw error;
+        res.status(201).json({ message: "تم حفظ العملية بنجاح ✅", calculation: data[0] });
+    } catch (err) { 
+        console.error("Save Calculation Error:", err);
+        res.status(500).json({ error: "خطأ في حفظ العملية الحسابية" }); 
+    }
+});
+
+// جلب سجل العمليات السابقة للمستخدم (عشان تظهر في History)
+app.get('/api/calculations', authenticateToken, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('feeding_calculations')
+            .select('*')
+            .eq('user_id', req.user.userId)
+            .order('created_at', { ascending: false }); // الترتيب من الأحدث للأقدم
+
+        if (error) throw error;
+        res.status(200).json(data);
+    } catch (err) { 
+        console.error("Fetch Calculations Error:", err);
+        res.status(500).json({ error: "خطأ في جلب سجل العمليات" }); 
+    }
 });
 
 // ==========================================
