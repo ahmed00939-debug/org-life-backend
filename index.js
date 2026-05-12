@@ -78,16 +78,21 @@ app.post('/api/login', async (req, res) => {
 });
 
 // ==========================================
-// 📦 2. مسارات المنتجات (Public)
+// 📦 2. مسارات المنتجات (Public) - نسخة مدمجة ومترتبة
 // ==========================================
 
-// جلب كل المنتجات
 app.get('/api/products', async (req, res) => {
     try {
-        const { data, error } = await supabase.from('products').select('*, product_category(category_name)');
+        const { data, error } = await supabase
+            .from('products')
+            .select('*, product_category(category_name)') // بيجيب بيانات المنتج + اسم القسم
+            .order('product_id', { ascending: true });   // الترتيب التصاعدي اللي هيظبط شكل الموبايل
+
         if (error) throw error;
         res.status(200).json(data);
-    } catch (err) { res.status(500).json({ error: "خطأ في جلب المنتجات" }); }
+    } catch (err) { 
+        res.status(500).json({ error: "خطأ في جلب المنتجات", message: err.message }); 
+    }
 });
 
 // ==========================================
