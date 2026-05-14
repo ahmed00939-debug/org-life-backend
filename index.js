@@ -128,19 +128,53 @@ app.get('/api/flocks', authenticateToken, async (req, res) => {
 // 🛒 4. مسارات الطلبات - Orders (Protected)
 // ==========================================
 
-// إنشاء طلب جديد
 app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
-        const { order_delivery_address } = req.body;
-        
-        const { data, error } = await supabase
+        // 1. استلام البيانات من الموبايل (إجمالي السعر، العنوان، وقائمة المنتجات)
+        const { order_delivery_address, order_total_price, items } = req.body;
+        const user_id = req.user.userId; // بنجيبه من التوكن (أمان 100%)
+
+        // 2. إدخال الفاتورة الأساسية في جدول orders
+        const { data: orderData, error: orderError } = await supabase
             .from('orders')
-            .insert([{ order_delivery_address, user_id: req.user.userId }])
+            .insert([{ 
+                user_id: user_id,
+                order_delivery_address: order_delivery_address,
+                order_total_price: order_total_price,
+                order_status: 'pending' 
+            }])
             .select();
 
-        if (error) throw error;
-        res.status(201).json({ message: "تم إنشاء الطلب ✅", order: data[0] });
-    } catch (err) { res.status(500).json({ error: "خطأ في إنشاء الطلب" }); }
+        if (orderError) throw orderError;
+
+        const newOrderId = orderData[0].order_id;
+
+        // 3. إدخال تفاصيل المنتجات في جدول order_details (لو السلة فيها منتجات)
+        if (items && items.length > 0) {
+            const orderDetailsToInsert = items.map(item => ({
+                order_id: newOrderId,
+                product_id: item.product_id,
+                od_quantity: item.quantity,
+                od_price_at_purchase: item.price,
+                od_subtotal: item.quantity * item.price // حساب الإجمالي الفرعي
+            }));
+
+            const { error: detailsError } = await supabase
+                .from('order_details')
+                .insert(orderDetailsToInsert);
+
+            if (detailsError) throw detailsError;
+        }
+
+        // 4. الرد بنجاح على الموبايل
+        res.status(201).json({ 
+            message: "تم إنشاء الطلب وتفاصيله بنجاح ✅", 
+            order_id: newOrderId 
+        });
+
+    } catch (err) { 
+        res.status(500).json({ error: "خطأ في إنشاء الطلب", details: err.message }); 
+    }
 });
 
 // ==========================================
