@@ -178,6 +178,34 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
+// 📦 مسار جلب طلباتي (My Orders)
+// ==========================================
+app.get('/api/my-orders', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        // السطر ده سحر Supabase: بيجيب الطلب + تفاصيله + بيانات المنتجات اللي جوه التفاصيل!
+        const { data, error } = await supabase
+            .from('orders')
+            .select(`
+                *,
+                order_details (
+                    *,
+                    products (*)
+                )
+            `)
+            .eq('user_id', userId)
+            .order('order_date', { ascending: false });
+
+        if (error) throw error;
+        
+        res.status(200).json(data);
+    } catch (err) {
+        console.error("Error fetching my orders:", err);
+        res.status(500).json({ error: "حدث خطأ أثناء جلب الطلبات" });
+    }
+});
+// ==========================================
 // 🧮 5. مسارات حسابات العلف - Calculations (Protected)
 // ==========================================
 
