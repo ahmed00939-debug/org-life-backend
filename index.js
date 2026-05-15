@@ -40,24 +40,46 @@ const authenticateToken = (req, res, next) => {
 // التسجيل
 app.post('/api/register', async (req, res) => {
     try {
-        const { user_fullname, user_email, password } = req.body;
-        if (!user_fullname || !user_email || !password) {
-            return res.status(400).json({ error: "الاسم والإيميل والباسورد مطلوبين" });
+        // 1. زودنا user_phone_number في الاستلام من req.body
+        const { user_fullname, user_email, password, user_phone_number } = req.body;
+        
+        // 2. التحقق من وجود رقم التليفون
+        if (!user_fullname || !user_email || !password || !user_phone_number) {
+            return res.status(400).json({ error: "الاسم والإيميل والباسورد ورقم التليفون مطلوبين" });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        // 3. إضافة user_phone_number في جملة الـ insert
         const { data, error } = await supabase
             .from('users')
-            .insert([{ user_fullname, user_email, user_password: hashedPassword }]) 
+            .insert([{ 
+                user_fullname, 
+                user_email, 
+                user_password: hashedPassword, 
+                user_phone_number // 👈 السطر الجديد
+            }]) 
             .select();
 
         if (error) {
             if (error.code === '23505') return res.status(400).json({ error: "الإيميل مسجل مسبقاً" });
             throw error;
         }
-        res.status(201).json({ message: "تم التسجيل بنجاح ✅", user: { id: data[0].user_id, name: data[0].user_fullname, email: data[0].user_email } });
-    } catch (err) { res.status(500).json({ error: "خطأ في السيرفر" }); }
+
+        // 4. إرجاع رقم التليفون في الـ response
+        res.status(201).json({ 
+            message: "تم التسجيل بنجاح ✅", 
+            user: { 
+                id: data[0].user_id, 
+                name: data[0].user_fullname, 
+                email: data[0].user_email,
+                phone: data[0].user_phone_number // 👈 إرجاعه للموبايل
+            } 
+        });
+    } catch (err) { 
+        console.error(err);
+        res.status(500).json({ error: "خطأ في السيرفر" }); 
+    }
 });
 
 // تسجيل الدخول
@@ -73,10 +95,19 @@ app.post('/api/login', async (req, res) => {
         if (!isMatch) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
 
         const token = jwt.sign({ userId: user.user_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-        res.json({ token, user: { id: user.user_id, name: user.user_fullname, email: user.user_email } });
+
+        // 5. إرسال رقم التليفون مع بيانات المستخدم عند تسجيل الدخول
+        res.json({ 
+            token, 
+            user: { 
+                id: user.user_id, 
+                name: user.user_fullname, 
+                email: user.user_email,
+                phone: user.user_phone_number // 👈 السطر الجديد
+            } 
+        });
     } catch (err) { res.status(500).json({ error: "خطأ في السيرفر" }); }
 });
-
 // ==========================================
 // 📦 2. مسارات المنتجات (Public) - نسخة مدمجة ومترتبة
 // ==========================================
