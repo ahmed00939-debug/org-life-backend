@@ -108,6 +108,103 @@ app.post('/api/login', async (req, res) => {
         });
     } catch (err) { res.status(500).json({ error: "خطأ في السيرفر" }); }
 });
+
+
+// ==========================================
+// 🔑 مسارات استعادة كلمة المرور (Reset Password)
+// ==========================================
+
+// 1. طلب كود الاستعادة (Forgot Password - Demo Mode)
+app.post('/api/forgot-password', async (req, res) => {
+    try {
+        const { user_email } = req.body;
+        if (!user_email) return res.status(400).json({ error: "البريد الإلكتروني مطلوب" });
+
+        // التأكد إن الإيميل موجود
+        const { data: users, error: searchError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('user_email', user_email);
+
+        if (searchError || !users.length) {
+            return res.status(404).json({ error: "البريد الإلكتروني غير مسجل لدينا" });
+        }
+
+        // توليد كود OTP من 6 أرقام
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        // الكود صالح لمدة 15 دقيقة
+        const expires = new Date(Date.now() + 15 * 60000).toISOString();
+
+        // حفظ الكود في الداتابيز
+        const { error: updateError } = await supabase
+            .from('users')
+            .update({ 
+                reset_password_token: otp, 
+                reset_password_expires: expires 
+            })
+            .eq('user_email', user_email);
+
+        if (updateError) throw updateError;
+
+        // 🌟 إرجاع الكود للموبايل لعرضه في شاشة المناقشة
+        res.status(200).json({ 
+            message: "تم طلب الاستعادة بنجاح",
+            otp: otp 
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "حدث خطأ أثناء طلب الاستعادة" });
+    }
+});
+
+// 2. تعيين كلمة المرور الجديدة (Reset Password)
+app.post('/api/reset-password', async (req, res) => {
+    try {
+        const { user_email, otp, new_password } = req.body;
+        
+        if (!user_email || !otp || !new_password) {
+            return res.status(400).json({ error: "جميع الحقول مطلوبة" });
+        }
+
+        // جلب المستخدم والتأكد من الكود
+        const { data: users, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('user_email', user_email)
+            .eq('reset_password_token', otp);
+
+        if (error || !users.length) {
+            return res.status(400).json({ error: "الكود غير صحيح أو انتهت صلاحيته" });
+        }
+
+        const user = users[0];
+
+        // التأكد إن الكود منتهيش
+        if (new Date(user.reset_password_expires) < new Date()) {
+            return res.status(400).json({ error: "انتهت صلاحية الكود، برجاء طلب كود جديد" });
+        }
+
+        // تشفير الباسورد الجديد
+        const hashedPassword = await bcrypt.hash(new_password, 10);
+
+        // تحديث الباسورد ومسح التوكن
+        const { error: updateError } = await supabase
+            .from('users')
+            .update({ 
+                user_password: hashedPassword,
+                reset_password_token: null,
+                reset_password_expires: null
+            })
+            .eq('user_email', user_email);
+
+        if (updateError) throw updateError;
+
+        res.status(200).json({ message: "تم تغيير كلمة المرور بنجاح ✅" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "حدث خطأ أثناء تغيير كلمة المرور" });
+    }
+});
 // ==========================================
 // 📦 2. مسارات المنتجات (Public) - نسخة مدمجة ومترتبة
 // ==========================================
