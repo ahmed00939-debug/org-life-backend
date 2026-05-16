@@ -406,3 +406,74 @@ if (!process.env.VERCEL) {
 }
 
 module.exports = app;
+
+// ==========================================
+// 🤖 مسار الذكاء الاصطناعي (AI Chat)
+// ==========================================
+const { GoogleGenAI } = require('@google/generative-ai');
+
+app.post('/api/ai-chat', authenticateToken, async (req, res) => {
+    try {
+        const { message } = req.body;
+        const userId = req.user.userId; // بنجيب الـ ID بتاع اليوزر من التوكن
+
+        if (!message) {
+            return res.status(400).json({ error: "الرسالة مطلوبة" });
+        }
+
+        // 1. جلب بيانات المستخدم من Supabase
+        // بنجيب القطعان
+        const { data: flocks } = await supabase
+            .from('flocks')
+            .select('*')
+            .eq('user_id', userId);
+
+        // بنجيب آخر حسابات العلف
+        const { data: calculations } = await supabase
+            .from('feeding_calculations')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+        // بنجيب آخر طلبات الشراء
+        const { data: orders } = await supabase
+            .from('orders')
+            .select('order_total_price, order_status, order_delivery_address')
+            .eq('user_id', userId)
+            .order('order_date', { ascending: false })
+            .limit(5);
+
+        // 2. تجهيز "عقل" الذكاء الاصطناعي (الـ Prompt)
+        const contextPrompt = `
+أنت خبير تغذية دواجن ومساعد ذكي مدمج في تطبيق لإدارة المزارع وتقليل تكلفة الأعلاف.
+مهمتك: الإجابة على سؤال المستخدم وتقديم نصائح علمية وعملية لتوفير العلف بناءً على بياناته الحقيقية أدناه.
+
+بيانات المستخدم الحالية من قاعدة البيانات:
+- القطعان التي يمتلكها: ${JSON.stringify(flocks || [])}
+- عمليات حساب العلف الأخيرة: ${JSON.stringify(calculations || [])}
+- طلبات الشراء الأخيرة للمكونات: ${JSON.stringify(orders || [])}
+
+سؤال المستخدم: "${message}"
+
+تعليمات هامة لك:
+1. أجب باللغة العربية بأسلوب احترافي وودود.
+2. استخدم الأرقام والبيانات المذكورة أعلاه لتقديم حلول مخصصة له (مثل نسبة الذرة أو الصويا).
+3. لا تقترح حلولاً خيالية، بل بناءً على مكونات العلف المتاحة (ذرة، صويا، قمح، إلخ).
+`;
+
+        // 3. الاتصال بـ Gemini
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+        const result = await model.generateContent(contextPrompt);
+        const aiReply = result.response.text();
+
+        // 4. إرسال الرد للموبايل
+        res.status(200).json({ reply: aiReply });
+
+    } catch (err) {
+        console.error("AI Chat Error:", err);
+        res.status(500).json({ error: "حدث خطأ أثناء معالجة طلب الذكاء الاصطناعي" });
+    }
+});
