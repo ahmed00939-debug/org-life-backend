@@ -7,7 +7,6 @@ const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 const app = express();
-const port = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(cors());
@@ -108,7 +107,6 @@ app.post('/api/login', async (req, res) => {
 // 🔑 مسارات استعادة كلمة المرور (Reset Password)
 // ==========================================
 
-// 1. طلب كود الاستعادة (Forgot Password - Demo Mode)
 app.post('/api/forgot-password', async (req, res) => {
     try {
         const { user_email } = req.body;
@@ -146,7 +144,6 @@ app.post('/api/forgot-password', async (req, res) => {
     }
 });
 
-// 2. تعيين كلمة المرور الجديدة (Reset Password)
 app.post('/api/reset-password', async (req, res) => {
     try {
         const { user_email, otp, new_password } = req.body;
@@ -209,43 +206,34 @@ app.get('/api/products', async (req, res) => {
 });
 
 // ==========================================
-// 🐓 3. مسارات القطعان (Protected) - [تم الدمج والتعديل هنا بنجاح]
+// 🐓 3. مسارات القطعان (Protected) - [مدمجة ونظيفة]
 // ==========================================
 
-// إضافة قطيع (مسار مدمج ومحمي)
 app.post('/api/flocks', authenticateToken, async (req, res) => {
-    const userId = req.user.userId || req.user.id; 
-    const { flock_animaltype, flock_quantity, flock_arrivaldate } = req.body;
-
-    if (!flock_animaltype || !flock_quantity) {
-        return res.status(400).json({ error: "نوع القطيع والكمية مطلوبين" });
-    }
-
     try {
+        const userId = req.user.userId; 
+        const { flock_animaltype, flock_quantity, flock_arrivaldate } = req.body;
+        
+        if (!flock_animaltype || !flock_quantity) {
+            return res.status(400).json({ error: "نوع القطيع والكمية مطلوبين" });
+        }
+
         const { data, error } = await supabase
             .from('flocks')
-            .insert([
-                { 
-                    user_id: userId, 
-                    flock_animaltype, 
-                    flock_quantity, 
-                    flock_arrivaldate 
-                }
-            ])
+            .insert([{ flock_animaltype, flock_quantity, flock_arrivaldate, user_id: userId }])
             .select();
 
         if (error) throw error;
-        res.status(201).json({ message: "تم إضافة القطيع بنجاح! ✅", flock: data[0] });
-    } catch (err) {
-        console.error("Error adding flock:", err);
-        res.status(500).json({ error: "حدث خطأ أثناء حفظ القطيع." });
+        res.status(201).json({ message: "تم إضافة القطيع ✅", flock: data[0] });
+    } catch (err) { 
+        console.error(err);
+        res.status(500).json({ error: "خطأ داخلي أثناء حفظ القطيع" }); 
     }
 });
 
-// جلب قطعان المستخدم فقط
 app.get('/api/flocks', authenticateToken, async (req, res) => {
     try {
-        const userId = req.user.userId || req.user.id;
+        const userId = req.user.userId;
         const { data, error } = await supabase.from('flocks').select('*').eq('user_id', userId);
         if (error) throw error;
         res.status(200).json(data);
@@ -258,7 +246,7 @@ app.get('/api/flocks', authenticateToken, async (req, res) => {
 app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
         const { order_delivery_address, order_total_price, items } = req.body;
-        const user_id = req.user.userId || req.user.id;
+        const user_id = req.user.userId; 
 
         const { data: orderData, error: orderError } = await supabase
             .from('orders')
@@ -300,10 +288,9 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     }
 });
 
-// جلب طلباتي (My Orders)
 app.get('/api/my-orders', authenticateToken, async (req, res) => {
     try {
-        const userId = req.user.userId || req.user.id;
+        const userId = req.user.userId;
 
         const { data, error } = await supabase
             .from('orders')
@@ -331,7 +318,7 @@ app.get('/api/my-orders', authenticateToken, async (req, res) => {
 // ==========================================
 app.post('/api/calculations', authenticateToken, async (req, res) => {
     try {
-        const userId = req.user.userId || req.user.id;
+        const userId = req.user.userId;
         const { corn_amount, wheat_amount, soybean_amount, feeding_frequency } = req.body;
 
         const { data, error } = await supabase
@@ -353,10 +340,9 @@ app.post('/api/calculations', authenticateToken, async (req, res) => {
     }
 });
 
-// جلب سجل العمليات السابقة للمستخدم
 app.get('/api/calculations', authenticateToken, async (req, res) => {
     try {
-        const userId = req.user.userId || req.user.id;
+        const userId = req.user.userId;
         const { data, error } = await supabase
             .from('feeding_calculations')
             .select('*')
@@ -372,17 +358,18 @@ app.get('/api/calculations', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// 🤖 مسار الذكاء الاصطناعي (محدث لمنع حجب اللغات وفلاتر الأمان)
+// 🤖 مسار الذكاء الاصطناعي (مصحح بالكامل ومؤمن)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     const { message, imageBase64 } = req.body;
-    const userId = req.user.userId || req.user.id;
+    const userId = req.user.userId; // 👈 تم التعديل لتتوافق مع التوكن المسجل وصححنا الـ Bug هنا
 
     if (!message && !imageBase64) {
         return res.status(400).json({ error: "يجب إرسال رسالة أو صورة." });
     }
 
     try {
+        // 1. جلب بيانات القطيع الخاصة بهذا المستخدم من Supabase
         const { data: flocks, error } = await supabase
             .from('flocks')
             .select('*')
@@ -397,6 +384,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             flockContext = "المستخدم لم يقم بإضافة أي قطيع حتى الآن.\n";
         }
 
+        // 2. إعداد التعليمات للذكاء الاصطناعي (Prompt)
         const systemInstruction = `
 أنت مساعد ذكي خبير في تربية الحيوانات والدواجن وإدارة المزارع.
 قواعد هامة جداً:
@@ -404,6 +392,10 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 2. السياق: ${flockContext}
 3. تحليل الصور: إذا أرفق المستخدم صورة، قم بتحليلها لمعرفة نوع الحيوان، حالته الصحية، وماذا يحتاج أن يأكل، ثم اربط ذلك ببيانات القطيع إن أمكن.
 `;
+
+        if (!process.env.GEMINI_API_KEY) {
+            return res.status(200).json({ reply: "API Key is missing in server environment." });
+        }
 
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         
@@ -440,10 +432,9 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         res.status(200).json({ reply: aiReply });
 
     } catch (err) {
-        console.error("AI Chat Error:", err);
-        res.status(200).json({ reply: "Sorry, I encountered a temporary issue. Please try rephrasing your question." });
+        console.error("AI Chat Error Details:", err);
+        res.status(200).json({ reply: `Server Error: ${err.message || err}` });
     }
 });
 
-// الموديول جاهز للرفع على Vercel 🚀
 module.exports = app;
