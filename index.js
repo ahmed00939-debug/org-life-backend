@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -109,7 +110,34 @@ app.post('/api/login', async (req, res) => {
     } catch (err) { res.status(500).json({ error: "خطأ في السيرفر" }); }
 });
 
+// ==========================================
+// 🐑 مسار إضافة بيانات القطيع (Flock)
+// ==========================================
+app.post('/api/flocks', authenticateToken, async (req, res) => {
+    // req.user بييجي من الـ authenticateToken
+    // تأكد إنك بتسجل الـ userId في الـ Token وإنت بتعمل Login
+    const userId = req.user.userId || req.user.id; 
+    const { flock_animaltype, flock_quantity, flock_arrivaldate } = req.body;
 
+    try {
+        const { data, error } = await supabase
+            .from('flocks')
+            .insert([
+                { 
+                    user_id: userId, 
+                    flock_animaltype, 
+                    flock_quantity, 
+                    flock_arrivaldate 
+                }
+            ]);
+
+        if (error) throw error;
+        res.status(200).json({ message: "تم إضافة القطيع بنجاح!" });
+    } catch (err) {
+        console.error("Error adding flock:", err);
+        res.status(500).json({ error: "حدث خطأ أثناء حفظ القطيع." });
+    }
+});
 // ==========================================
 // 🔑 مسارات استعادة كلمة المرور (Reset Password)
 // ==========================================
@@ -380,44 +408,60 @@ app.get('/api/calculations', authenticateToken, async (req, res) => {
 
 
 // ==========================================
-// 🤖 مسار الذكاء الاصطناعي (AI Chat)
+// 🤖 مسار الذكاء الاصطناعي (محدث للصور والقطيع واللغات)
 // ==========================================
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
-    try {
-        const { message } = req.body;
-        const userId = req.user.userId; 
+    const { message, imageBase64 } = req.body;
+    const userId = req.user.userId || req.user.id;
 
-        if (!message) {
-            return res.status(400).json({ error: "الرسالة مطلوبة" });
+    if (!message && !imageBase64) {
+        return res.status(400).json({ error: "يجب إرسال رسالة أو صورة." });
+    }
+
+    try {
+        // 1. جلب بيانات القطيع الخاصة بهذا المستخدم من Supabase
+        const { data: flocks, error } = await supabase
+            .from('flocks')
+            .select('*')
+            .eq('user_id', userId);
+
+        let flockContext = "";
+        if (flocks && flocks.length > 0) {
+            flockContext = "إليك بيانات القطيع الخاصة بالمستخدم (User's Flocks):\n" + 
+                           JSON.stringify(flocks) + 
+                           "\nاستخدم هذه البيانات لتقديم نصائح مخصصة، مثلاً قل: 'بناءً على قطيعك المكون من كذا...' أو 'Based on your flock...'\n";
+        } else {
+            flockContext = "المستخدم لم يقم بإضافة أي قطيع حتى الآن.\n";
         }
 
-        const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
-        const { data: calculations } = await supabase.from('feeding_calculations').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(5);
-        const { data: orders } = await supabase.from('orders').select('order_total_price, order_status, order_delivery_address').eq('user_id', userId).order('order_date', { ascending: false }).limit(5);
-
-        const contextPrompt = `
-أنت خبير تغذية دواجن ومساعد ذكي مدمج في تطبيق لإدارة المزارع وتقليل تكلفة الأعلاف.
-مهمتك: الإجابة على سؤال المستخدم وتقديم نصائح علمية وعملية لتوفير العلف بناءً على بياناته الحقيقية أدناه.
-
-بيانات المستخدم الحالية من قاعدة البيانات:
-- القطعان التي يمتلكها: ${JSON.stringify(flocks || [])}
-- عمليات حساب العلف الأخيرة: ${JSON.stringify(calculations || [])}
-- طلبات الشراء الأخيرة للمكونات: ${JSON.stringify(orders || [])}
-
-سؤال المستخدم: "${message}"
-
-تعليمات هامة لك:
-1. أجب باللغة العربية بأسلوب احترافي وودود.
-2. استخدم الأرقام والبيانات المذكورة أعلاه لتقديم حلول مخصصة له.
-3. لا تقترح حلولاً خيالية، بل بناءً على مكونات العلف المتاحة.
+        // 2. إعداد التعليمات للذكاء الاصطناعي (Prompt)
+        const systemInstruction = `
+أنت مساعد ذكي خبير في تربية الحيوانات والدواجن وإدارة المزارع.
+قواعد هامة جداً:
+1. اللغة: يجب أن ترد بنفس لغة المستخدم تماماً. إذا تحدث بالعربية رد بالعربية، وإذا تحدث بالإنجليزية رد بالإنجليزية (Respond in the same language the user uses).
+2. السياق: ${flockContext}
+3. تحليل الصور: إذا أرفق المستخدم صورة، قم بتحليلها لمعرفة نوع الحيوان، حالته الصحية، وماذا يحتاج أن يأكل، ثم اربط ذلك ببيانات القطيع إن أمكن.
 `;
 
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
+        // نستخدم الموديل اللي بيدعم الرؤية (Vision) والنصوص
+        const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-        const result = await model.generateContent(contextPrompt);
+        // 3. تجهيز المحتوى (رسالة + صورة لو موجودة)
+        const parts = [
+            { text: systemInstruction + "\n\nرسالة المستخدم: " + (message || "مرفق صورة") }
+        ];
+
+        if (imageBase64) {
+            parts.push({
+                inlineData: {
+                    data: imageBase64,
+                    mimeType: "image/jpeg" // أو png حسب المرفق
+                }
+            });
+        }
+
+        const result = await model.generateContent(parts);
         const aiReply = result.response.text();
 
         res.status(200).json({ reply: aiReply });
@@ -427,32 +471,5 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         res.status(500).json({ error: "حدث خطأ أثناء معالجة طلب الذكاء الاصطناعي" });
     }
 });
-
-// ==========================================
-// 🚀 تشغيل وفحص السيرفر
-// ==========================================
-async function startServer() {
-    console.log("====================================");
-    console.log("⏳ جاري الاتصال بـ Supabase...");
-    
-    try {
-        const { error } = await supabase.from('users').select('count', { count: 'exact', head: true });
-        if (error) throw error;
-        console.log("✅ تم الاتصال بـ Supabase بنجاح! 🚀");
-    } catch (err) {
-        console.log("❌ فشل الاتصال بقاعدة البيانات. تأكد من المفاتيح والإنترنت.");
-    }
-
-    app.listen(port, () => {
-        console.log(`🚀 السيرفر شغال على بورت: ${port}`);
-        console.log("====================================");
-    });
-}
-
-// المتغير ده Vercel بتضيفه تلقائي من عندها
-if (!process.env.VERCEL) {
-    startServer();
-}
-
 module.exports = app;
 
