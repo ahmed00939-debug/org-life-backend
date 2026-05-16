@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 const app = express();
+const port = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(cors());
@@ -39,21 +40,24 @@ const authenticateToken = (req, res, next) => {
 // التسجيل
 app.post('/api/register', async (req, res) => {
     try {
+        // 1. زودنا user_phone_number في الاستلام من req.body
         const { user_fullname, user_email, password, user_phone_number } = req.body;
         
+        // 2. التحقق من وجود رقم التليفون
         if (!user_fullname || !user_email || !password || !user_phone_number) {
             return res.status(400).json({ error: "الاسم والإيميل والباسورد ورقم التليفون مطلوبين" });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        // 3. إضافة user_phone_number في جملة الـ insert
         const { data, error } = await supabase
             .from('users')
             .insert([{ 
                 user_fullname, 
                 user_email, 
                 user_password: hashedPassword, 
-                user_phone_number
+                user_phone_number // 👈 السطر الجديد
             }]) 
             .select();
 
@@ -62,13 +66,14 @@ app.post('/api/register', async (req, res) => {
             throw error;
         }
 
+        // 4. إرجاع رقم التليفون في الـ response
         res.status(201).json({ 
             message: "تم التسجيل بنجاح ✅", 
             user: { 
                 id: data[0].user_id, 
                 name: data[0].user_fullname, 
                 email: data[0].user_email,
-                phone: data[0].user_phone_number
+                phone: data[0].user_phone_number // 👈 إرجاعه للموبايل
             } 
         });
     } catch (err) { 
@@ -91,27 +96,58 @@ app.post('/api/login', async (req, res) => {
 
         const token = jwt.sign({ userId: user.user_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
+        // 5. إرسال رقم التليفون مع بيانات المستخدم عند تسجيل الدخول
         res.json({ 
             token, 
             user: { 
                 id: user.user_id, 
                 name: user.user_fullname, 
                 email: user.user_email,
-                phone: user.user_phone_number
+                phone: user.user_phone_number // 👈 السطر الجديد
             } 
         });
     } catch (err) { res.status(500).json({ error: "خطأ في السيرفر" }); }
 });
 
 // ==========================================
+// 🐑 مسار إضافة بيانات القطيع (Flock)
+// ==========================================
+app.post('/api/flocks', authenticateToken, async (req, res) => {
+    // req.user بييجي من الـ authenticateToken
+    // تأكد إنك بتسجل الـ userId في الـ Token وإنت بتعمل Login
+    const userId = req.user.userId || req.user.id; 
+    const { flock_animaltype, flock_quantity, flock_arrivaldate } = req.body;
+
+    try {
+        const { data, error } = await supabase
+            .from('flocks')
+            .insert([
+                { 
+                    user_id: userId, 
+                    flock_animaltype, 
+                    flock_quantity, 
+                    flock_arrivaldate 
+                }
+            ]);
+
+        if (error) throw error;
+        res.status(200).json({ message: "تم إضافة القطيع بنجاح!" });
+    } catch (err) {
+        console.error("Error adding flock:", err);
+        res.status(500).json({ error: "حدث خطأ أثناء حفظ القطيع." });
+    }
+});
+// ==========================================
 // 🔑 مسارات استعادة كلمة المرور (Reset Password)
 // ==========================================
 
+// 1. طلب كود الاستعادة (Forgot Password - Demo Mode)
 app.post('/api/forgot-password', async (req, res) => {
     try {
         const { user_email } = req.body;
         if (!user_email) return res.status(400).json({ error: "البريد الإلكتروني مطلوب" });
 
+        // التأكد إن الإيميل موجود
         const { data: users, error: searchError } = await supabase
             .from('users')
             .select('*')
@@ -121,9 +157,12 @@ app.post('/api/forgot-password', async (req, res) => {
             return res.status(404).json({ error: "البريد الإلكتروني غير مسجل لدينا" });
         }
 
+        // توليد كود OTP من 6 أرقام
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        // الكود صالح لمدة 15 دقيقة
         const expires = new Date(Date.now() + 15 * 60000).toISOString();
 
+        // حفظ الكود في الداتابيز
         const { error: updateError } = await supabase
             .from('users')
             .update({ 
@@ -134,6 +173,7 @@ app.post('/api/forgot-password', async (req, res) => {
 
         if (updateError) throw updateError;
 
+        // 🌟 إرجاع الكود للموبايل لعرضه في شاشة المناقشة
         res.status(200).json({ 
             message: "تم طلب الاستعادة بنجاح",
             otp: otp 
@@ -144,6 +184,7 @@ app.post('/api/forgot-password', async (req, res) => {
     }
 });
 
+// 2. تعيين كلمة المرور الجديدة (Reset Password)
 app.post('/api/reset-password', async (req, res) => {
     try {
         const { user_email, otp, new_password } = req.body;
@@ -152,6 +193,7 @@ app.post('/api/reset-password', async (req, res) => {
             return res.status(400).json({ error: "جميع الحقول مطلوبة" });
         }
 
+        // جلب المستخدم والتأكد من الكود
         const { data: users, error } = await supabase
             .from('users')
             .select('*')
@@ -164,12 +206,15 @@ app.post('/api/reset-password', async (req, res) => {
 
         const user = users[0];
 
+        // التأكد إن الكود منتهيش
         if (new Date(user.reset_password_expires) < new Date()) {
             return res.status(400).json({ error: "انتهت صلاحية الكود، برجاء طلب كود جديد" });
         }
 
+        // تشفير الباسورد الجديد
         const hashedPassword = await bcrypt.hash(new_password, 10);
 
+        // تحديث الباسورد ومسح التوكن
         const { error: updateError } = await supabase
             .from('users')
             .update({ 
@@ -187,16 +232,16 @@ app.post('/api/reset-password', async (req, res) => {
         res.status(500).json({ error: "حدث خطأ أثناء تغيير كلمة المرور" });
     }
 });
+// ==========================================
+// 📦 2. مسارات المنتجات (Public) - نسخة مدمجة ومترتبة
+// ==========================================
 
-// ==========================================
-// 📦 2. مسارات المنتجات (Public)
-// ==========================================
 app.get('/api/products', async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('products')
-            .select('*, product_category(category_name)') 
-            .order('product_id', { ascending: true });   
+            .select('*, product_category(category_name)') // بيجيب بيانات المنتج + اسم القسم
+            .order('product_id', { ascending: true });   // الترتيب التصاعدي اللي هيظبط شكل الموبايل
 
         if (error) throw error;
         res.status(200).json(data);
@@ -206,35 +251,29 @@ app.get('/api/products', async (req, res) => {
 });
 
 // ==========================================
-// 🐓 3. مسارات القطعان (Protected) - [مدمجة ونظيفة]
+// 🐓 3. مسارات القطعان (Protected)
 // ==========================================
 
+// إضافة قطيع
 app.post('/api/flocks', authenticateToken, async (req, res) => {
     try {
-        const userId = req.user.userId; 
-        const { flock_animaltype, flock_quantity, flock_arrivaldate } = req.body;
-        
-        if (!flock_animaltype || !flock_quantity) {
-            return res.status(400).json({ error: "نوع القطيع والكمية مطلوبين" });
-        }
+        const { flock_animaltype, flock_quantity } = req.body;
+        if (!flock_animaltype || !flock_quantity) return res.status(400).json({ error: "نوع القطيع والكمية مطلوبين" });
 
         const { data, error } = await supabase
             .from('flocks')
-            .insert([{ flock_animaltype, flock_quantity, flock_arrivaldate, user_id: userId }])
+            .insert([{ flock_animaltype, flock_quantity, user_id: req.user.userId }])
             .select();
 
         if (error) throw error;
         res.status(201).json({ message: "تم إضافة القطيع ✅", flock: data[0] });
-    } catch (err) { 
-        console.error(err);
-        res.status(500).json({ error: "خطأ داخلي أثناء حفظ القطيع" }); 
-    }
+    } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
 });
 
+// جلب قطعان المستخدم فقط
 app.get('/api/flocks', authenticateToken, async (req, res) => {
     try {
-        const userId = req.user.userId;
-        const { data, error } = await supabase.from('flocks').select('*').eq('user_id', userId);
+        const { data, error } = await supabase.from('flocks').select('*').eq('user_id', req.user.userId);
         if (error) throw error;
         res.status(200).json(data);
     } catch (err) { res.status(500).json({ error: "خطأ في جلب البيانات" }); }
@@ -243,11 +282,14 @@ app.get('/api/flocks', authenticateToken, async (req, res) => {
 // ==========================================
 // 🛒 4. مسارات الطلبات - Orders (Protected)
 // ==========================================
+
 app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
+        // 1. استلام البيانات من الموبايل (إجمالي السعر، العنوان، وقائمة المنتجات)
         const { order_delivery_address, order_total_price, items } = req.body;
-        const user_id = req.user.userId; 
+        const user_id = req.user.userId; // بنجيبه من التوكن (أمان 100%)
 
+        // 2. إدخال الفاتورة الأساسية في جدول orders
         const { data: orderData, error: orderError } = await supabase
             .from('orders')
             .insert([{ 
@@ -262,13 +304,14 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 
         const newOrderId = orderData[0].order_id;
 
+        // 3. إدخال تفاصيل المنتجات في جدول order_details (لو السلة فيها منتجات)
         if (items && items.length > 0) {
             const orderDetailsToInsert = items.map(item => ({
                 order_id: newOrderId,
                 product_id: item.product_id,
                 od_quantity: item.quantity,
                 od_price_at_purchase: item.price,
-                od_subtotal: item.quantity * item.price 
+                od_subtotal: item.quantity * item.price // حساب الإجمالي الفرعي
             }));
 
             const { error: detailsError } = await supabase
@@ -278,6 +321,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
             if (detailsError) throw detailsError;
         }
 
+        // 4. الرد بنجاح على الموبايل
         res.status(201).json({ 
             message: "تم إنشاء الطلب وتفاصيله بنجاح ✅", 
             order_id: newOrderId 
@@ -288,10 +332,14 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     }
 });
 
+// ==========================================
+// 📦 مسار جلب طلباتي (My Orders)
+// ==========================================
 app.get('/api/my-orders', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
 
+        // السطر ده سحر Supabase: بيجيب الطلب + تفاصيله + بيانات المنتجات اللي جوه التفاصيل!
         const { data, error } = await supabase
             .from('orders')
             .select(`
@@ -312,21 +360,21 @@ app.get('/api/my-orders', authenticateToken, async (req, res) => {
         res.status(500).json({ error: "حدث خطأ أثناء جلب الطلبات" });
     }
 });
-
 // ==========================================
 // 🧮 5. مسارات حسابات العلف - Calculations (Protected)
 // ==========================================
+
+// حفظ عملية حساب جديدة (بعد ما اليوزر يدوس Calculate)
 app.post('/api/calculations', authenticateToken, async (req, res) => {
     try {
-        const userId = req.user.userId;
         const { corn_amount, wheat_amount, soybean_amount, feeding_frequency } = req.body;
 
         const { data, error } = await supabase
             .from('feeding_calculations')
             .insert([{ 
-                user_id: userId, 
+                user_id: req.user.userId, 
                 corn_amount: corn_amount || 0, 
-                wheat_amount: wheat_amount || 0, 
+                wheat_amount: wheat_amount || 0, // شيلنا الكالسيوم وحطينا القمح
                 soybean_amount: soybean_amount || 0,
                 feeding_frequency: feeding_frequency || 1
             }])
@@ -340,14 +388,14 @@ app.post('/api/calculations', authenticateToken, async (req, res) => {
     }
 });
 
+// جلب سجل العمليات السابقة للمستخدم (عشان تظهر في History)
 app.get('/api/calculations', authenticateToken, async (req, res) => {
     try {
-        const userId = req.user.userId;
         const { data, error } = await supabase
             .from('feeding_calculations')
             .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false }); 
+            .eq('user_id', req.user.userId)
+            .order('created_at', { ascending: false }); // الترتيب من الأحدث للأقدم
 
         if (error) throw error;
         res.status(200).json(data);
@@ -357,12 +405,13 @@ app.get('/api/calculations', authenticateToken, async (req, res) => {
     }
 });
 
+
 // ==========================================
-// 🤖 مسار الذكاء الاصطناعي (مصحح بالكامل ومؤمن)
+// 🤖 مسار الذكاء الاصطناعي (محدث لمنع حجب اللغات وفلاتر الأمان)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     const { message, imageBase64 } = req.body;
-    const userId = req.user.userId; // 👈 تم التعديل لتتوافق مع التوكن المسجل وصححنا الـ Bug هنا
+    const userId = req.user.userId || req.user.id;
 
     if (!message && !imageBase64) {
         return res.status(400).json({ error: "يجب إرسال رسالة أو صورة." });
@@ -393,12 +442,9 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 3. تحليل الصور: إذا أرفق المستخدم صورة، قم بتحليلها لمعرفة نوع الحيوان، حالته الصحية، وماذا يحتاج أن يأكل، ثم اربط ذلك ببيانات القطيع إن أمكن.
 `;
 
-        if (!process.env.GEMINI_API_KEY) {
-            return res.status(200).json({ reply: "API Key is missing in server environment." });
-        }
-
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         
+        // 👇 [التعديل الأول: تمرير إعدادات الأمان لإيقاف الحجب الحساس للكلمات الإنجليزية] 👇
         const model = ai.getGenerativeModel({ 
             model: "gemini-1.5-flash",
             safetySettings: [
@@ -409,6 +455,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             ]
         });
 
+        // 3. تجهيز المحتوى (رسالة + صورة لو موجودة)
         const parts = [
             { text: systemInstruction + "\n\nرسالة المستخدم: " + (message || "مرفق صورة") }
         ];
@@ -417,13 +464,14 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             parts.push({
                 inlineData: {
                     data: imageBase64,
-                    mimeType: "image/jpeg" 
+                    mimeType: "image/jpeg" // أو png حسب المرفق
                 }
             });
         }
 
         const result = await model.generateContent(parts);
         
+        // 👇 [التعديل الثاني: التحقق من أن جوجل لم تحجب الإجابة نهائياً قبل استخراج النص] 👇
         if (!result.response.candidates || result.response.candidates.length === 0 || result.response.candidates[0].finishReason === 'SAFETY') {
             return res.status(200).json({ reply: "Sorry, I cannot answer this specific query due to safety AI filters. Please rephrase your question." });
         }
@@ -432,9 +480,10 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         res.status(200).json({ reply: aiReply });
 
     } catch (err) {
-        console.error("AI Chat Error Details:", err);
-        res.status(200).json({ reply: `Server Error: ${err.message || err}` });
+        console.error("AI Chat Error:", err);
+        // تم تعديل الرد هنا ليرد جوه الشات مباشرة بدل ما يرجع 500 ويعلق التطبيق
+        res.status(200).json({ reply: "Sorry, I encountered a temporary issue. Please try rephrasing your question." });
     }
 });
-
 module.exports = app;
+
