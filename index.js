@@ -405,9 +405,28 @@ app.get('/api/calculations', authenticateToken, async (req, res) => {
     }
 });
 
+// ==========================================
+// 📜 5. مسار جلب سجل المحادثات (للفلاتر)
+// ==========================================
+app.get('/api/chat-history', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { data, error } = await supabase
+            .from('chat_messages')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true }); 
+
+        if (error) throw error;
+        res.status(200).json(data);
+    } catch (err) {
+        console.error("Error fetching history:", err);
+        res.status(500).json({ error: "خطأ في جلب المحادثات السابقة" });
+    }
+});
 
 // ==========================================
-// 🤖 مسار الذكاء الاصطناعي (المحصن ضد أخطاء 400)
+// 🤖 6. مسار الذكاء الاصطناعي (مدمج بذاكرة قوية ومحصن من الأخطاء)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
@@ -415,57 +434,61 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         const userId = req.user.userId; 
 
         // 1. جلب بيانات القطيع
-        const { data: flocks } = await supabase
-            .from('flocks')
-            .select('*')
-            .eq('user_id', userId);
+        const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
+        let flockContext = flocks && flocks.length > 0 ? `\nبيانات مزارع المستخدم: ${JSON.stringify(flocks)}` : "";
 
-        let flockContext = "المستخدم لم يقم بإضافة أي قطيع حتى الآن.";
-        if (flocks && flocks.length > 0) {
-            flockContext = "بيانات قطيع المستخدم: " + JSON.stringify(flocks);
+        // 2. جلب آخر 10 رسائل (كـ نص عشان نتفادى أخطاء جوجل)
+        const { data: historyData } = await supabase
+            .from('chat_messages')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true })
+            .limit(10);
+
+        let historyText = "";
+        if (historyData && historyData.length > 0) {
+            historyText = "\n\nسجل المحادثة السابقة (تذكره جيداً):\n" + 
+            historyData.map(msg => `${msg.sender === 'user' ? 'المستخدم' : 'أنت'}: ${msg.content}`).join("\n");
         }
+
+        // 3. شخصية الـ AI
+        const systemInstruction = `أنت مساعد ذكي، ودود، وخبير في المزارع والحيوانات.
+القواعد:
+1. استخدم نفس لغة ولهجة المستخدم تماماً وبشكل بشري.
+2. تذكر المحادثة السابقة المرفقة ورد بناءً عليها.
+${flockContext}
+${historyText}`;
 
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = ai.getGenerativeModel({ 
-            model: "gemini-1.5-flash-latest",
-            safetySettings: [
-                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            ]
+            model: "gemini-1.5-flash-latest", 
+            systemInstruction: systemInstruction,
         });
 
-        // 2. دمج التعليمات مع الرسالة بشكل مباشر لمنع أي خطأ في صيغة الطلب
-        const fullMessage = `أنت مساعد خبير في المزارع. استخدم نفس لغة المستخدم تماماً في الرد.
-السياق (بيانات قطيع المستخدم): ${flockContext}
-
-رسالة المستخدم: ${message || "برجاء تحليل هذه الصورة."}`;
-
-        const parts = [ { text: fullMessage } ];
+        // 4. تجهيز الرسالة الجديدة
+        const parts = [];
+        const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
         
-        // 3. تنظيف الصورة بشكل صارم جداً (لو مبعوتة)
-        if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.trim() !== '') {
-            // إزالة البادئة التي يرسلها الفلاتر لضمان قبول جوجل للـ Base64
+        if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.length > 100) {
             const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "").trim();
-            parts.push({
-                inlineData: {
-                    data: cleanBase64,
-                    mimeType: "image/jpeg" 
-                }
-            });
+            parts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
         }
+        parts.push(userText);
 
-        // 4. استدعاء الموديل
         const result = await model.generateContent(parts);
         const aiReply = result.response.text();
+
+        // 5. حفظ الرسالة والرد في قاعدة البيانات
+        await supabase.from('chat_messages').insert([
+            { user_id: userId, sender: 'user', content: userText },
+            { user_id: userId, sender: 'ai', content: aiReply }
+        ]);
         
         res.status(200).json({ reply: aiReply });
 
     } catch (err) {
         console.error("🔥 Vercel AI Error:", err.message || err);
-        // الرد الآمن عشان الموبايل ما يظهرش رسالة خطأ
-        res.status(200).json({ reply: "أنا مستعد لمساعدتك! يبدو أن هناك مشكلة في قراءة الرسالة، هل يمكنك توضيح سؤالك؟" });
+        res.status(200).json({ reply: "عذراً يا صديقي، حدث انقطاع في الاتصال، هل يمكنك إعادة سؤالك؟" });
     }
 });
 
