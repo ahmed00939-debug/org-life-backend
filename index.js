@@ -387,7 +387,7 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// 🤖 7. مسار الذكاء الاصطناعي 
+// 🤖 7. مسار الذكاء الاصطناعي (التعديل النهائي للـ v1)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
@@ -405,30 +405,32 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 2. رد بناءً على بيانات القطيع المتاحة إذا كان سؤال المستخدم متعلقاً بها.
 ${flockContext}`;
 
-        // تهيئة الـ AI بالمفتاح
+        // تهيئة الـ AI بمفتاح الحماية
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         
-        // التعديل السحري: تمرير الـ systemInstruction في الإعدادات بشكل رسمي عشان المكتبة تفهمها
         const model = ai.getGenerativeModel({ 
             model: "gemini-1.5-flash",
             systemInstruction: systemInstruction
         });
 
-        // 3. تجهيز محتويات الرسالة
-        const contents = [];
+        // 3. تجهيز أجزاء الرسالة (parts) بالهيكل الصحيح لـ v1
+        const parts = [];
         
-        // لو فيه صورة مبعوتة
+        // لو فيه صورة مبعوتة، نضيفها كـ inlineData
         if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.length > 100) {
             const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "").trim();
-            contents.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
+            parts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
         }
 
-        // إضافة نص المستخدم الحالي
+        // إضافة نص المستخدم مغلف في كائن text (الحل السحري للـ 400)
         const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
-        contents.push(userText);
+        parts.push({ text: userText });
 
-        // إرسال الطلب لجوجل بالهيكل الجديد
-        const result = await model.generateContent({ contents });
+        // إرسال الطلب بشكل سليم
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts: parts }]
+        });
+        
         const aiReply = result.response.text();
 
         // 4. حفظ الرسالة والرد في قاعدة البيانات
