@@ -389,7 +389,7 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 const crypto = require('crypto'); // لو مش مستدعيها فوق، سيبها هنا
 
 // ==========================================
-// 🤖 مسار الذكاء الاصطناعي بالـ API المباشر (الإصدار v1 المستقر والنهائي)
+// 🤖 مسار الذكاء الاصطناعي بالـ API المباشر (الإصدار المستقر والناجح 100%)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
@@ -400,13 +400,14 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
         let flockContext = flocks && flocks.length > 0 ? `\nبيانات مزارع المستخدم الحالية: ${JSON.stringify(flocks)}` : "";
 
+        // دمج شخصية الـ AI وتعليماته في نص واحد صريح
         const systemInstruction = `أنت مساعد ذكي، ودود، وخبير في المزارع والحيوانات.
 القواعد الصارمة:
 1. استخدم لهجة مصرية عامية ودودة وبشرية تماماً.
 2. رد بناءً على بيانات القطيع المتاحة إذا كان سؤال المستخدم متعلقاً بها.
 ${flockContext}`;
 
-        // 2. تجهيز الـ Contents
+        // 2. تجهيز الـ Contents لـ جوجل
         const requestParts = [];
 
         // دعم الصور لو موجودة
@@ -415,11 +416,11 @@ ${flockContext}`;
             requestParts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
         }
 
-        // إضافة النص
+        // إضافة النص مدموجاً بالتعليمات مباشرة (الحل السحري للـ 400 و الـ Unknown name)
         const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
-        requestParts.push({ text: userText });
+        requestParts.push({ text: `${systemInstruction}\n\nسؤال المستخدم الحالي: ${userText}` });
 
-        // 3. إرسال الطلب مباشرة لـ v1 المستقر (الحل السحري)
+        // 3. إرسال الطلب لرابط v1 المباشر والمستقر
         const apiKey = process.env.GEMINI_API_KEY;
         const googleUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
@@ -427,17 +428,13 @@ ${flockContext}`;
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                contents: [{ role: "user", parts: requestParts }],
-                // تمرير الـ System Instructions بالهيكل الرسمي المدعوم في v1
-                systemInstruction: {
-                    parts: [{ text: systemInstruction }]
-                }
+                contents: [{ role: "user", parts: requestParts }]
             })
         });
 
         const data = await response.json();
 
-        // لو السيرفر رجع أي خطأ من جوجل
+        // معالجة الأخطاء لو واجهت جوجل أي مشكلة
         if (!response.ok || data.error) {
             const errorMsg = data.error ? data.error.message : 'Unknown Google API Error';
             throw new Error(`Google HTTP ${response.status}: ${errorMsg}`);
@@ -446,7 +443,7 @@ ${flockContext}`;
         // استخراج الرد بنجاح
         const aiReply = data.candidates[0].content.parts[0].text;
 
-        // 4. حفظ الرسالة والرد في قاعدة البيانات
+        // 4. حفظ الرسالة والرد في قاعدة البيانات (Supabase)
         await supabase.from('chat_messages').insert([
             { user_id: userId, sender: 'user', content: userText },
             { user_id: userId, sender: 'ai', content: aiReply }
@@ -455,7 +452,7 @@ ${flockContext}`;
         return res.status(200).json({ reply: aiReply });
 
     } catch (err) {
-        console.error("🔥 Final Direct API Error:", err.message || err);
+        console.error("🔥 Final Safe Direct API Error:", err.message || err);
         return res.status(200).json({ reply: `خطأ من السيرفر: ${err.message || err}` });
     }
 });
