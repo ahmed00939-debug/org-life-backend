@@ -454,4 +454,35 @@ const result = await model.generateContent({
     }
 });
 
+
+// ==========================================
+// 🔍 مسار كشف الموديلات المتاحة للحساب (List Models)
+// ==========================================
+app.post('/api/ai-chat', authenticateToken, async (req, res) => {
+    try {
+        const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        
+        // استدعاء الدالة الرسمية لجلب كل الموديلات المتاحة لمفتاحك
+        const modelsList = await ai.listModels();
+        
+        // تصفية النتيجة عشان نرجع الأسماء بس بشكل واصل ومقروء
+        const availableModels = [];
+        for await (const model of modelsList) {
+            availableModels.push({
+                name: model.name,
+                supportedMethods: model.supportedGenerationMethods
+            });
+        }
+
+        // هنرجع اللستة دي للموبايل مباشرة عشان تشوفها بعينك على الشاشة!
+        res.status(200).json({ 
+            reply: `📋 الموديلات المتاحة لحسابك حالياً هي:\n\n${JSON.stringify(availableModels, null, 2)}` 
+        });
+
+    } catch (err) {
+        console.error("🔥 List Models Error:", err.message || err);
+        res.status(200).json({ reply: `خطأ أثناء جلب الموديلات: ${err.message || err}` });
+    }
+});
+
 module.exports = app;
