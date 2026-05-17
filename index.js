@@ -461,7 +461,7 @@ ${historyText}`;
 
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = ai.getGenerativeModel({ 
-            model: "gemini-1.5-flash-latest", 
+            model: "gemini-1.5-flash",
             systemInstruction: systemInstruction,
         });
 
