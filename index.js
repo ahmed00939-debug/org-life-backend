@@ -461,8 +461,8 @@ ${historyText}`;
 
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = ai.getGenerativeModel({ 
-            model: "gemini-1.5-flash",
-            systemInstruction: systemInstruction,
+        model: "gemini-2.5-flash", // الاسم المستقر والحديث والمدعوم حالياً في الـ API
+        systemInstruction: systemInstruction,
         });
 
         // 4. تجهيز الرسالة الجديدة
