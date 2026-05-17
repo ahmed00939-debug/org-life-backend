@@ -493,7 +493,8 @@ ${historyText}`;
 
     } catch (err) {
         console.error("🔥 Vercel AI Error:", err.message || err);
-        res.status(200).json({ reply: "عذراً يا صديقي، حدث انقطاع في الاتصال، هل يمكنك إعادة سؤالك؟" });
+        // التعديل هنا: هنخلي السيرفر يرجع الخطأ الحقيقي للموبايل عشان نشوفه بعنينا بدل الرسالة الثابتة!
+        res.status(200).json({ reply: `خطأ من السيرفر: ${err.message || err}` });
     }
 });
 
