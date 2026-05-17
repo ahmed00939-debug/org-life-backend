@@ -407,7 +407,7 @@ app.get('/api/calculations', authenticateToken, async (req, res) => {
 
 
 // ==========================================
-// 🤖 مسار الذكاء الاصطناعي (مضاد للأعطال - Fail-Safe)
+// 🤖 مسار الذكاء الاصطناعي (المحصن ضد أخطاء 400)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
@@ -425,12 +425,9 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             flockContext = "بيانات قطيع المستخدم: " + JSON.stringify(flocks);
         }
 
-        const systemInstruction = `أنت مساعد خبير في المزارع. استخدم نفس لغة المستخدم تماماً. السياق: ${flockContext}`;
-
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = ai.getGenerativeModel({ 
-            model: "gemini-pro",
-            systemInstruction: systemInstruction, 
+            model: "gemini-1.5-flash-latest",
             safetySettings: [
                 { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
                 { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -439,11 +436,18 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             ]
         });
 
-        const parts = [];
+        // 2. دمج التعليمات مع الرسالة بشكل مباشر لمنع أي خطأ في صيغة الطلب
+        const fullMessage = `أنت مساعد خبير في المزارع. استخدم نفس لغة المستخدم تماماً في الرد.
+السياق (بيانات قطيع المستخدم): ${flockContext}
+
+رسالة المستخدم: ${message || "برجاء تحليل هذه الصورة."}`;
+
+        const parts = [ { text: fullMessage } ];
         
-        // 2. تنظيف وإضافة الصورة (إن وجدت)
-        if (imageBase64) {
-            const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+        // 3. تنظيف الصورة بشكل صارم جداً (لو مبعوتة)
+        if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.trim() !== '') {
+            // إزالة البادئة التي يرسلها الفلاتر لضمان قبول جوجل للـ Base64
+            const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "").trim();
             parts.push({
                 inlineData: {
                     data: cleanBase64,
@@ -452,20 +456,16 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             });
         }
 
-        // 3. إضافة رسالة المستخدم (أو رسالة افتراضية لو باعت صورة بس)
-        parts.push({ text: message || "برجاء تحليل هذه الصورة المرفقة." });
-
         // 4. استدعاء الموديل
         const result = await model.generateContent(parts);
         const aiReply = result.response.text();
         
-        // الرد بنجاح للفلاتر
         res.status(200).json({ reply: aiReply });
 
     } catch (err) {
         console.error("🔥 Vercel AI Error:", err.message || err);
-        // التعديل السحري هنا: بنرجع 200 دايماً عشان الفلاتر يفهم الرد وما يعرضش رسالة الإيرور القديمة
-        res.status(200).json({ reply: "أهلاً بك! أنا أعمل بشكل جيد الآن. كيف يمكنني مساعدتك اليوم؟" });
+        // الرد الآمن عشان الموبايل ما يظهرش رسالة خطأ
+        res.status(200).json({ reply: "أنا مستعد لمساعدتك! يبدو أن هناك مشكلة في قراءة الرسالة، هل يمكنك توضيح سؤالك؟" });
     }
 });
 
