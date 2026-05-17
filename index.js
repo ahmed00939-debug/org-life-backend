@@ -5,7 +5,8 @@ const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
-const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
+// 💥 شلنا سطر الـ GoogleGenerativeAI القديم عشان ميعملش كراش للـ Deploy
+
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -212,7 +213,6 @@ app.get('/api/products', async (req, res) => {
 // 🐓 3. مسارات القطعان - Flocks (Protected)
 // ==========================================
 
-// إضافة قطيع (النسخة النظيفة المدمجة)
 app.post('/api/flocks', authenticateToken, async (req, res) => {
     const userId = req.user.userId || req.user.id; 
     const { flock_animaltype, flock_quantity, flock_arrivaldate } = req.body;
@@ -242,7 +242,6 @@ app.post('/api/flocks', authenticateToken, async (req, res) => {
     }
 });
 
-// جلب قطعان المستخدم فقط
 app.get('/api/flocks', authenticateToken, async (req, res) => {
     try {
         const { data, error } = await supabase.from('flocks').select('*').eq('user_id', req.user.userId);
@@ -299,7 +298,6 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     }
 });
 
-// جلب طلباتي
 app.get('/api/my-orders', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
@@ -386,8 +384,6 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
     }
 });
 
-const crypto = require('crypto'); // لو مش مستدعيها فوق، سيبها هنا
-
 // ==========================================
 // 🤖 مساعد الذكاء الاصطناعي باستخدام Groq (البديل السريع والمجاني)
 // ==========================================
@@ -419,7 +415,7 @@ ${flockContext}`;
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: "llama-3.3-70b-versatile", // الموديل المجاني الأقوى والسريع جداً عندهم
+                model: "llama-3.3-70b-versatile",
                 messages: [
                     { role: "system", content: systemInstruction },
                     { role: "user", content: userText }
@@ -450,6 +446,11 @@ ${flockContext}`;
         console.error("🔥 Groq AI Error:", err.message || err);
         return res.status(200).json({ reply: `خطأ من السيرفر: ${err.message || err}` });
     }
+});
+
+// 🟢 تشغيل السيرفر بشكل يضمن التوافق محلياً ومع Vercel بالملي
+app.listen(port, () => {
+    console.log(`🚀 Server is running on port ${port}`);
 });
 
 module.exports = app;
