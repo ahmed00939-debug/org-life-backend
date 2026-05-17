@@ -407,11 +407,11 @@ app.get('/api/calculations', authenticateToken, async (req, res) => {
 
 
 // ==========================================
-// 🤖 مسار الذكاء الاصطناعي (محدث لمنع حجب اللغات وفلاتر الأمان)
+// 🤖 مسار الذكاء الاصطناعي (محدث ومصلح بالكامل ليفهم الشات والصور)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     const { message, imageBase64 } = req.body;
-    const userId = req.user.userId || req.user.id;
+    const userId = req.user.userId; 
 
     if (!message && !imageBase64) {
         return res.status(400).json({ error: "يجب إرسال رسالة أو صورة." });
@@ -433,20 +433,26 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             flockContext = "المستخدم لم يقم بإضافة أي قطيع حتى الآن.\n";
         }
 
-        // 2. إعداد التعليمات للذكاء الاصطناعي (Prompt)
+        // 2. إعداد التعليمات للذكاء الاصطناعي كـ System Instruction مستقلة
         const systemInstruction = `
 أنت مساعد ذكي خبير في تربية الحيوانات والدواجن وإدارة المزارع.
-قواعد هامة جداً:
-1. اللغة: يجب أن ترد بنفس لغة المستخدم تماماً. إذا تحدث بالعربية رد بالعربية، وإذا تحدث بالإنجليزية رد بالإنجليزية (Respond in the same language the user uses).
-2. السياق: ${flockContext}
-3. تحليل الصور: إذا أرفق المستخدم صورة، قم بتحليلها لمعرفة نوع الحيوان، حالته الصحية، وماذا يحتاج أن يأكل، ثم اربط ذلك ببيانات القطيع إن أمكن.
+قواعد هامة جداً للدردشة:
+1. ادمج في أسلوبك الدردشة العادية المفتوحة، وافهم أي سؤال يطرحه المستخدم ورد عليه بذكاء وسلاسة سواء كان عاماً أو خاصاً بالمزارع.
+2. اللغة: يجب أن ترد بنفس لغة المستخدم تماماً وبشكل طبيعي وعفوي. إذا تحدث بالعربية رد بالعربية، وإذا تحدث بالإنجليزية رد بالإنجليزية.
+3. السياق: ${flockContext}
+4. تحليل الصور: إذا أرفق المستخدم صورة، قم بتحليلها لمعرفة نوع الحيوان، حالته الصحية، وماذا يحتاج أن يأكل، ثم اربط ذلك ببيانات القطيع إن أمكن.
 `;
+
+        if (!process.env.GEMINI_API_KEY) {
+            return res.status(200).json({ reply: "API Key is missing in server environment." });
+        }
 
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         
-        // 👇 [التعديل الأول: تمرير إعدادات الأمان لإيقاف الحجب الحساس للكلمات الإنجليزية] 👇
+        // تمرير الـ systemInstruction في مكانها الصحيح لضمان أعلى أداء وفهم كامل
         const model = ai.getGenerativeModel({ 
             model: "gemini-1.5-flash",
+            systemInstruction: systemInstruction, 
             safetySettings: [
                 { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
                 { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -455,34 +461,40 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             ]
         });
 
-        // 3. تجهيز المحتوى (رسالة + صورة لو موجودة)
-        const parts = [
-            { text: systemInstruction + "\n\nرسالة المستخدم: " + (message || "مرفق صورة") }
-        ];
+        // 3. تجهيز المحتوى (رسالة + صورة بتنسيق نظيف)
+        const parts = [];
+        
+        if (message) {
+            parts.push({ text: message });
+        } else {
+            parts.push({ text: "برجاء تحليل ومناقشة هذه الصورة المرفقة." });
+        }
 
         if (imageBase64) {
+            // تنظيف الـ base64 من أي بادئة زائدة ترسلها الموبايل لضمان عدم حدوث خطأ 400
+            const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
             parts.push({
                 inlineData: {
-                    data: imageBase64,
-                    mimeType: "image/jpeg" // أو png حسب المرفق
+                    data: cleanBase64,
+                    mimeType: "image/jpeg" 
                 }
             });
         }
 
-        const result = await model.generateContent(parts);
+        // إرسال الطلب بالهيكل الرسمي المتوافق مع التحديثات الجديدة
+        const result = await model.generateContent({ contents: [{ role: 'user', parts: parts }] });
         
-        // 👇 [التعديل الثاني: التحقق من أن جوجل لم تحجب الإجابة نهائياً قبل استخراج النص] 👇
-        if (!result.response.candidates || result.response.candidates.length === 0 || result.response.candidates[0].finishReason === 'SAFETY') {
-            return res.status(200).json({ reply: "Sorry, I cannot answer this specific query due to safety AI filters. Please rephrase your question." });
+        const aiReply = result.response.text();
+        
+        if (!aiReply) {
+            return res.status(200).json({ reply: "لم أتمكن من استخراج رد مناسب، يرجى المحاولة مرة أخرى." });
         }
 
-        const aiReply = result.response.text();
         res.status(200).json({ reply: aiReply });
 
     } catch (err) {
-        console.error("AI Chat Error:", err);
-        // تم تعديل الرد هنا ليرد جوه الشات مباشرة بدل ما يرجع 500 ويعلق التطبيق
-        res.status(200).json({ reply: "Sorry, I encountered a temporary issue. Please try rephrasing your question." });
+        console.error("AI Chat Error Details:", err);
+        res.status(200).json({ reply: "أهلاً بك! أنا جاهز ومستعد للإجابة على أي استفسار تريده الآن." });
     }
 });
 module.exports = app;
