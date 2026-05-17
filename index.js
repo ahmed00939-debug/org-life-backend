@@ -387,62 +387,70 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// 🤖 7. مسار الذكاء الاصطناعي (التعديل النهائي للـ v1)
+// 🤖 7. مسار الذكاء الاصطناعي (التعديل النهائي للـ v1 القياسي)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
         const { message, imageBase64 } = req.body;
         const userId = req.user.userId; 
 
-        // 1. جلب بيانات القطيع
+        // 1. جلب بيانات القطيع عشان نديها سياق للـ AI
         const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
         let flockContext = flocks && flocks.length > 0 ? `\nبيانات مزارع المستخدم الحالية: ${JSON.stringify(flocks)}` : "";
 
-        // 2. شخصية الـ AI والتعليمات المباشرة
+        // 2. تحديد شخصية الـ AI والتعليمات الصارمة له
         const systemInstruction = `أنت مساعد ذكي، ودود، وخبير في المزارع والحيوانات.
 القواعد الصارمة:
 1. استخدم نفس لغة ولهجة المستخدم تماماً (لهجة مصرية عامية ودودة وبشرية).
 2. رد بناءً على بيانات القطيع المتاحة إذا كان سؤال المستخدم متعلقاً بها.
 ${flockContext}`;
 
-        // تهيئة الـ AI بمفتاح الحماية
+        // تهيئة مكتبة جوجل بمفتاح الـ API الخاص بك
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         
+        // بناء الموديل مع تمرير الـ System Instructions في الإعدادات بشكل رسمي
         const model = ai.getGenerativeModel({ 
             model: "gemini-1.5-flash",
             systemInstruction: systemInstruction
         });
 
-        // 3. تجهيز أجزاء الرسالة (parts) بالهيكل الصحيح لـ v1
-        const parts = [];
+        // 3. بناء مصفوفة الـ parts بالطريقة التي يتوقعها إصدار v1 بالملي
+        const requestParts = [];
         
-        // لو فيه صورة مبعوتة، نضيفها كـ inlineData
+        // إذا كان هناك صورة مرسلة بدقة Base64
         if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.length > 100) {
             const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "").trim();
-            parts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
+            requestParts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
         }
 
-        // إضافة نص المستخدم مغلف في كائن text (الحل السحري للـ 400)
+        // إضافة نص المستخدم الحالي داخل كائن نصي صريح { text: ... } 
         const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
-        parts.push({ text: userText });
+        requestParts.push({ text: userText });
 
-        // إرسال الطلب بشكل سليم
+        // التعديل السحري: تغليف المصفوفة بالكامل داخل كائن يحمل الـ role والـ parts
         const result = await model.generateContent({
-            contents: [{ role: "user", parts: parts }]
+            contents: [
+                {
+                    role: "user",
+                    parts: requestParts
+                }
+            ]
         });
         
         const aiReply = result.response.text();
 
-        // 4. حفظ الرسالة والرد في قاعدة البيانات
+        // 4. تسجيل الرسائل في قاعدة بيانات Supabase للرجوع إليها في الـ History
         await supabase.from('chat_messages').insert([
             { user_id: userId, sender: 'user', content: userText },
             { user_id: userId, sender: 'ai', content: aiReply }
         ]);
         
+        // الرد على الموبايل بالسلامة والنجاح
         res.status(200).json({ reply: aiReply });
 
     } catch (err) {
         console.error("🔥 Vercel AI Error:", err.message || err);
+        // بنرجع الرد حتى لو حصل خطأ عشان الشاشة في الموبايل متفضلش معلقة لو جوجل هنج
         res.status(200).json({ reply: `خطأ من السيرفر: ${err.message || err}` });
     }
 });
