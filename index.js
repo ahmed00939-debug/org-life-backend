@@ -396,51 +396,42 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 
         // 1. جلب بيانات القطيع
         const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
-        let flockContext = flocks && flocks.length > 0 ? `\nبيانات مزارع المستخدم: ${JSON.stringify(flocks)}` : "";
+        let flockContext = flocks && flocks.length > 0 ? `\nبيانات مزارع المستخدم الحالية: ${JSON.stringify(flocks)}` : "";
 
-        // 2. جلب آخر 10 رسائل
-        const { data: historyData } = await supabase
-            .from('chat_messages')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: true })
-            .limit(10);
-
-        let historyText = "";
-        if (historyData && historyData.length > 0) {
-            historyText = "\n\nسجل المحادثة السابقة (تذكره جيداً):\n" + 
-            historyData.map(msg => `${msg.sender === 'user' ? 'المستخدم' : 'أنت'}: ${msg.content}`).join("\n");
-        }
-
-        // 3. شخصية الـ AI والتعليمات
+        // 2. شخصية الـ AI والتعليمات المباشرة
         const systemInstruction = `أنت مساعد ذكي، ودود، وخبير في المزارع والحيوانات.
-القواعد:
-1. استخدم نفس لغة ولهجة المستخدم تماماً وبشكل بشري.
-2. تذكر المحادثة السابقة المرفقة ورد بناءً عليها.
-${flockContext}
-${historyText}`;
+القواعد الصارمة:
+1. استخدم نفس لغة ولهجة المستخدم تماماً (لهجة مصرية عامية ودودة وبشرية).
+2. رد بناءً على بيانات القطيع المتاحة إذا كان سؤال المستخدم متعلقاً بها.
+${flockContext}`;
 
+        // تهيئة الـ AI بالمفتاح
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        
+        // التعديل السحري: تمرير الـ systemInstruction في الإعدادات بشكل رسمي عشان المكتبة تفهمها
         const model = ai.getGenerativeModel({ 
-            model: "gemini-1.5-flash" 
+            model: "gemini-1.5-flash",
+            systemInstruction: systemInstruction
         });
 
-        // 4. تجهيز الرسالة الجديدة
-        const parts = [];
-        const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
+        // 3. تجهيز محتويات الرسالة
+        const contents = [];
         
+        // لو فيه صورة مبعوتة
         if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.length > 100) {
             const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "").trim();
-            parts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
+            contents.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
         }
 
-        const finalPrompt = `${systemInstruction}\n\n[طلب المستخدم الحالي]: ${userText}`;
-        parts.push(finalPrompt);
+        // إضافة نص المستخدم الحالي
+        const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
+        contents.push(userText);
 
-        const result = await model.generateContent(parts);
+        // إرسال الطلب لجوجل بالهيكل الجديد
+        const result = await model.generateContent({ contents });
         const aiReply = result.response.text();
 
-        // 5. حفظ الرسالة والرد في قاعدة البيانات
+        // 4. حفظ الرسالة والرد في قاعدة البيانات
         await supabase.from('chat_messages').insert([
             { user_id: userId, sender: 'user', content: userText },
             { user_id: userId, sender: 'ai', content: aiReply }
@@ -452,11 +443,6 @@ ${historyText}`;
         console.error("🔥 Vercel AI Error:", err.message || err);
         res.status(200).json({ reply: `خطأ من السيرفر: ${err.message || err}` });
     }
-});
-
-// تشغيل السيرفر محلياً وضمان الربط
-app.listen(port, () => {
-    console.log(`🚀 السيرفر شغال حلاوة على بورت ${port}`);
 });
 
 module.exports = app;
