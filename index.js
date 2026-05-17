@@ -389,61 +389,56 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 const crypto = require('crypto'); // لو مش مستدعيها فوق، سيبها هنا
 
 // ==========================================
-// 🤖 مسار الذكاء الاصطناعي بالـ API المباشر (الإصدار المستقر والناجح 100%)
+// 🤖 مساعد الذكاء الاصطناعي باستخدام Groq (البديل السريع والمجاني)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
-        const { message, imageBase64 } = req.body;
+        const { message } = req.body; 
         const userId = req.user.userId; 
 
-        // 1. جلب بيانات القطيع لتهيئة السياق
+        // 1. جلب بيانات القطيع لتهيئة السياق للـ AI
         const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
         let flockContext = flocks && flocks.length > 0 ? `\nبيانات مزارع المستخدم الحالية: ${JSON.stringify(flocks)}` : "";
 
-        // دمج شخصية الـ AI وتعليماته في نص واحد صريح
+        // التعليمات الصارمة لشخصية الـ AI
         const systemInstruction = `أنت مساعد ذكي، ودود، وخبير في المزارع والحيوانات.
 القواعد الصارمة:
-1. استخدم لهجة مصرية عامية ودودة وبشرية تماماً.
+1. استخدم لهجة مصرية عامية ودودة وبشرية تماماً في كل ردودك.
 2. رد بناءً على بيانات القطيع المتاحة إذا كان سؤال المستخدم متعلقاً بها.
 ${flockContext}`;
 
-        // 2. تجهيز الـ Contents لـ جوجل
-        const requestParts = [];
+        const userText = (message && message.trim() !== "") ? message : "أهلاً بك";
 
-        // دعم الصور لو موجودة
-        if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.length > 100) {
-            const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "").trim();
-            requestParts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
-        }
-
-        // إضافة النص مدموجاً بالتعليمات مباشرة (الحل السحري للـ 400 و الـ Unknown name)
-        const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
-        requestParts.push({ text: `${systemInstruction}\n\nسؤال المستخدم الحالي: ${userText}` });
-
-        // 3. إرسال الطلب لرابط v1 المباشر والمستقر
-        const apiKey = process.env.GEMINI_API_KEY;
-        const googleUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-
-        const response = await fetch(googleUrl, {
+        // 2. إرسال الطلب مباشرة لسيرفر Groq عبر الـ API المباشر
+        const groqApiKey = process.env.GROQ_API_KEY; 
+        
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Authorization': `Bearer ${groqApiKey}`,
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({
-                contents: [{ role: "user", parts: requestParts }]
+                model: "llama-3.3-70b-versatile", // الموديل المجاني الأقوى والسريع جداً عندهم
+                messages: [
+                    { role: "system", content: systemInstruction },
+                    { role: "user", content: userText }
+                ],
+                temperature: 0.7
             })
         });
 
         const data = await response.json();
 
-        // معالجة الأخطاء لو واجهت جوجل أي مشكلة
         if (!response.ok || data.error) {
-            const errorMsg = data.error ? data.error.message : 'Unknown Google API Error';
-            throw new Error(`Google HTTP ${response.status}: ${errorMsg}`);
+            const errorMsg = data.error ? data.error.message : 'Unknown Groq Error';
+            throw new Error(`Groq HTTP ${response.status}: ${errorMsg}`);
         }
 
         // استخراج الرد بنجاح
-        const aiReply = data.candidates[0].content.parts[0].text;
+        const aiReply = data.choices[0].message.content;
 
-        // 4. حفظ الرسالة والرد في قاعدة البيانات (Supabase)
+        // 3. حفظ الرسالة والرد في قاعدة البيانات (Supabase)
         await supabase.from('chat_messages').insert([
             { user_id: userId, sender: 'user', content: userText },
             { user_id: userId, sender: 'ai', content: aiReply }
@@ -452,7 +447,7 @@ ${flockContext}`;
         return res.status(200).json({ reply: aiReply });
 
     } catch (err) {
-        console.error("🔥 Final Safe Direct API Error:", err.message || err);
+        console.error("🔥 Groq AI Error:", err.message || err);
         return res.status(200).json({ reply: `خطأ من السيرفر: ${err.message || err}` });
     }
 });
