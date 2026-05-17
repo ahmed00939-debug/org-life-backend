@@ -410,9 +410,9 @@ ${flockContext}`;
         
         // بناء الموديل مع تمرير الـ System Instructions في الإعدادات بشكل رسمي
         const model = ai.getGenerativeModel({ 
-            model: "gemini-1.5-flash",
-            systemInstruction: systemInstruction
-        });
+    model: "gemini-pro", // غيرناها من gemini-1.5-flash لـ gemini-pro
+    systemInstruction: systemInstruction
+});
 
         // 3. بناء مصفوفة الـ parts بالطريقة التي يتوقعها إصدار v1 بالملي
         const requestParts = [];
