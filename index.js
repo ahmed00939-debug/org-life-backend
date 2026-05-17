@@ -451,7 +451,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             historyData.map(msg => `${msg.sender === 'user' ? 'المستخدم' : 'أنت'}: ${msg.content}`).join("\n");
         }
 
-        // 3. شخصية الـ AI والتعليمات
+// 3. شخصية الـ AI والتعليمات
         const systemInstruction = `أنت مساعد ذكي، ودود، وخبير في المزارع والحيوانات.
 القواعد:
 1. استخدم نفس لغة ولهجة المستخدم تماماً وبشكل بشري.
@@ -459,31 +459,35 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 ${flockContext}
 ${historyText}`;
 
-        // تهيئة الـ AI بدون تمرير systemInstruction كـ Object لتجنب خطأ الـ 404 وتحويل الرابط لـ v1beta
+        // التهيئة باستخدام الموديل بـ اللاحقة -latest المدعومة في v1beta
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = ai.getGenerativeModel({ 
-            model: "gemini-1.5-flash" 
+            model: "gemini-1.5-flash-latest" // التعديل السحري هنا بالإصدار الأحدث
         });
 
-        // 4. تجهيز الرسالة الجديدة
+        // 4. تجهيز الرسالة الجديدة كـ Structure نضيف
+        const contents = [];
         const parts = [];
         const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
         
-        // إذا كان هناك صورة مرفوعة، يتم تجهيزها أولاً في الـ parts
+        // إذا كان هناك صورة مرفوعة
         if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.length > 100) {
             const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "").trim();
             parts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
         }
 
-        // دمج التعليمات مع رسالة المستخدم الحالية لضمان التزام الـ AI بالدور تماماً
+        // دمج التعليمات والسياق مع النص الحالي
         const combinedPrompt = `${systemInstruction}\n\n[رسالة المستخدم الحالية]: ${userText}`;
-        parts.push(combinedPrompt);
+        parts.push({ text: combinedPrompt });
 
-        // إرسال البيانات للموديل المستقر
-        const result = await model.generateContent(parts);
+        // تمرير الداتا بالشكل الصريح المتوافق مع الـ v1beta
+        contents.push({ role: 'user', parts: parts });
+
+        // إرسال الطلب
+        const result = await model.generateContent({ contents: contents });
         const aiReply = result.response.text();
 
-        // 5. حفظ الرسالة والرد في قاعدة البيانات (بنحفظ الـ userText الأصلي عشان الداتا تفضل نظيفة)
+        // 5. حفظ الرسالة والرد في قاعدة البيانات
         await supabase.from('chat_messages').insert([
             { user_id: userId, sender: 'user', content: userText },
             { user_id: userId, sender: 'ai', content: aiReply }
@@ -493,10 +497,8 @@ ${historyText}`;
 
     } catch (err) {
         console.error("🔥 Vercel AI Error:", err.message || err);
-        // التعديل هنا: هنخلي السيرفر يرجع الخطأ الحقيقي للموبايل عشان نشوفه بعنينا بدل الرسالة الثابتة!
         res.status(200).json({ reply: `خطأ من السيرفر: ${err.message || err}` });
     }
 });
-
 module.exports = app;
 
