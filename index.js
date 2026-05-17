@@ -386,48 +386,61 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
     }
 });
 
+const crypto = require('crypto'); // لو مش مستدعيها فوق، سيبها هنا
+
 // ==========================================
-// 🤖 مسار الذكاء الاصطناعي المتوافق مع إصدار 0.21.0 القديم
+// 🤖 مسار الذكاء الاصطناعي عبر الـ API المباشر (حل نهائي وبدون مكتبات)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
         const { message, imageBase64 } = req.body;
         const userId = req.user.userId; 
 
-        // 1. جلب بيانات القطيع
+        // 1. جلب بيانات القطيع لتهيئة السياق
         const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
         let flockContext = flocks && flocks.length > 0 ? `\nبيانات مزارع المستخدم الحالية: ${JSON.stringify(flocks)}` : "";
 
-        // 2. تهيئة المكتبة القديمة بالطريقة اللي هي عارفاها
-        const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        
-        // الموديل المستقر الوحيد في الإصدارات القديمة هو gemini-pro
-        const model = ai.getGenerativeModel({ model: "gemini-pro" });
-
-        // شخصية الـ AI وتعليماته
         const systemInstruction = `أنت مساعد ذكي، ودود، وخبير في المزارع والحيوانات.
 القواعد الصارمة:
 1. استخدم لهجة مصرية عامية ودودة وبشرية تماماً.
 2. رد بناءً على بيانات القطيع المتاحة إذا كان سؤال المستخدم متعلقاً بها.
-${flockContext}\n\n`;
+${flockContext}`;
 
-        // 3. تجهيز النص بالطريقة القديمة الصريحة (صوت وصورة أو نص فقط)
-        let promptParts = [];
-        
+        // 2. تجهيز الـ Contents بأسلوب جوجل القياسي للـ API المباشر
+        const requestParts = [];
+
+        // دعم الصور لو موجودة
         if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.length > 100) {
             const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "").trim();
-            promptParts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
+            requestParts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
         }
 
+        // إضافة النص والتعليمات مدموجين لضمان قراءتها في أي إصدار
         const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
-        
-        // بندمج الـ Instruction مع رسالة المستخدم مباشرة لأن الإصدار القديم مكنش فيه خاصية systemInstruction منفصلة
-        promptParts.push(systemInstruction + userText);
+        requestParts.push({ text: `${systemInstruction}\n\nسؤال المستخدم: ${userText}` });
 
-        // إرسال الطلب (بالشكل القديم المباشر لمصفوفة الـ Parts)
-        const result = await model.generateContent(promptParts);
-        const response = await result.response;
-        const aiReply = response.text();
+        // 3. إرسال الطلب مباشرة عبر HTTP POST بدون استخدام الـ SDK المعلق
+        const apiKey = process.env.GEMINI_API_KEY;
+        const googleUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+        const response = await fetch(googleUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ role: "user", parts: requestParts }]
+            })
+        });
+
+        const data = await response.json();
+
+        // التأكد من استجابة جوجل بشكل صحيح
+        if (!response.ok || data.error) {
+            const errorMsg = data.error ? data.error.message : 'Unknown Google API Error';
+            throw new Error(`Google HTTP ${response.status}: ${errorMsg}`);
+        }
+
+        // استخراج الرد
+        const aiReply = data.candidates[0].content.parts[0].text;
 
         // 4. حفظ الرسالة والرد في قاعدة البيانات
         await supabase.from('chat_messages').insert([
@@ -435,11 +448,11 @@ ${flockContext}\n\n`;
             { user_id: userId, sender: 'ai', content: aiReply }
         ]);
         
-        res.status(200).json({ reply: aiReply });
+        return res.status(200).json({ reply: aiReply });
 
     } catch (err) {
-        console.error("🔥 Old SDK Gemini Error:", err.message || err);
-        res.status(200).json({ reply: `خطأ السيرفر القديم: ${err.message || err}` });
+        console.error("🔥 Direct API Call Error:", err.message || err);
+        return res.status(200).json({ reply: `خطأ مباشر من السيرفر: ${err.message || err}` });
     }
 });
 
