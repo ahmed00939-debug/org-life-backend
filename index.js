@@ -458,30 +458,31 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 ${flockContext}
 ${historyText}`;
 
-        // استخدام gemini-pro لضمان التوافق التام مع إصدار المكتبة القديم عندك بدون 404
+        // استخدام الموديل المستقر المضمون للعمل مع أي نسخة SDK ومفتاحك الجديد
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = ai.getGenerativeModel({ 
-            model: "gemini-pro" 
+            model: "gemini-1.5-flash" 
         });
 
-        // 4. تجهيز الرسالة الجديدة
+        // 4. تجهيز الرسالة الجديدة كـ Array مباشر (متوافق مع كل النسخ)
         const parts = [];
         const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
         
+        // إذا كان هناك صورة مرفوعة
         if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.length > 100) {
             const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "").trim();
             parts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
         }
 
-        // دمج التعليمات مع نص المستخدم كـ Prompt واحد عشان الـ AI يفهمه
-        const finalPrompt = `${systemInstruction}\n\n[طلب المستخدم الحالي]: ${userText}`;
-        parts.push(finalPrompt);
+        // دمج التعليمات مع النص في الـ Prompt مباشرة لضمان أعلى توافق
+        const combinedPrompt = `${systemInstruction}\n\n[طلب المستخدم الحالي]: ${userText}`;
+        parts.push(combinedPrompt);
 
+        // مناداة الـ API بالطريقة المباشرة السريعة
         const result = await model.generateContent(parts);
         const aiReply = result.response.text();
 
         // 5. حفظ الرسالة والرد في قاعدة البيانات
-        // ملحوظة: شيلنا الـ id خالص من هنا عشان الـ Supabase يولد الـ uuid تلقائياً وميضربش!
         await supabase.from('chat_messages').insert([
             { user_id: userId, sender: 'user', content: userText },
             { user_id: userId, sender: 'ai', content: aiReply }
