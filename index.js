@@ -409,7 +409,7 @@ ${flockContext}`;
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         
 const model = ai.getGenerativeModel({ 
-    model: "gemini-1.5-pro", // غيرنا الاسم لـ pro عشان نضمن إن الـ Vercel لو احدث هيغير الرابط
+    model: "gemini-1.5-flash", // رجعناه فلاش لأنه المدعوم في حسابك المجاني
     systemInstruction: systemInstruction
 });
 
@@ -428,7 +428,12 @@ const model = ai.getGenerativeModel({
 
         // التعديل السحري: تغليف المصفوفة بالكامل داخل كائن يحمل الـ role والـ parts
 const result = await model.generateContent({
-    contents: [{ role: "user", parts: requestParts }]
+    contents: [
+        {
+            role: "user",
+            parts: requestParts
+        }
+    ]
 });
         
         const aiReply = result.response.text();
