@@ -408,9 +408,8 @@ ${flockContext}`;
         // تهيئة مكتبة جوجل بمفتاح الـ API الخاص بك
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         
-        // بناء الموديل مع تمرير الـ System Instructions في الإعدادات بشكل رسمي
-        const model = ai.getGenerativeModel({ 
-    model: "gemini-pro", // غيرناها من gemini-1.5-flash لـ gemini-pro
+const model = ai.getGenerativeModel({ 
+    model: "gemini-1.5-pro", // غيرنا الاسم لـ pro عشان نضمن إن الـ Vercel لو احدث هيغير الرابط
     systemInstruction: systemInstruction
 });
 
@@ -428,14 +427,9 @@ ${flockContext}`;
         requestParts.push({ text: userText });
 
         // التعديل السحري: تغليف المصفوفة بالكامل داخل كائن يحمل الـ role والـ parts
-        const result = await model.generateContent({
-            contents: [
-                {
-                    role: "user",
-                    parts: requestParts
-                }
-            ]
-        });
+const result = await model.generateContent({
+    contents: [{ role: "user", parts: requestParts }]
+});
         
         const aiReply = result.response.text();
 
