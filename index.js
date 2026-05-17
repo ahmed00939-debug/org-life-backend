@@ -5,7 +5,6 @@ const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
-// 💥 شلنا سطر الـ GoogleGenerativeAI القديم عشان ميعملش كراش للـ Deploy
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -137,9 +136,9 @@ app.post('/api/forgot-password', async (req, res) => {
 
         if (updateError) throw updateError;
 
+        // 🔒 تم إزالة إرسال الـ OTP في الاستجابة لحماية الحسابات
         res.status(200).json({ 
-            message: "تم طلب الاستعادة بنجاح",
-            otp: otp 
+            message: "تم طلب الاستعادة بنجاح"
         });
     } catch (err) {
         console.error(err);
@@ -448,9 +447,10 @@ ${flockContext}`;
     }
 });
 
-// 🟢 تشغيل السيرفر بشكل يضمن التوافق محلياً ومع Vercel بالملي
-app.listen(port, () => {
-    console.log(`🚀 Server is running on port ${port}`);
-});
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(port, () => {
+        console.log(`🚀 Server is running on port ${port}`);
+    });
+}
 
 module.exports = app;
