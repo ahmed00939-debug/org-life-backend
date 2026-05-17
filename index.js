@@ -386,34 +386,60 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
     }
 });
 
-
 // ==========================================
-// 🔍 مسار كشف الموديلات المتاحة للحساب (List Models)
+// 🤖 مسار الذكاء الاصطناعي المتوافق مع إصدار 0.21.0 القديم
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
+        const { message, imageBase64 } = req.body;
+        const userId = req.user.userId; 
+
+        // 1. جلب بيانات القطيع
+        const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
+        let flockContext = flocks && flocks.length > 0 ? `\nبيانات مزارع المستخدم الحالية: ${JSON.stringify(flocks)}` : "";
+
+        // 2. تهيئة المكتبة القديمة بالطريقة اللي هي عارفاها
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         
-        // استدعاء الدالة الرسمية لجلب كل الموديلات المتاحة لمفتاحك
-        const modelsList = await ai.listModels();
+        // الموديل المستقر الوحيد في الإصدارات القديمة هو gemini-pro
+        const model = ai.getGenerativeModel({ model: "gemini-pro" });
+
+        // شخصية الـ AI وتعليماته
+        const systemInstruction = `أنت مساعد ذكي، ودود، وخبير في المزارع والحيوانات.
+القواعد الصارمة:
+1. استخدم لهجة مصرية عامية ودودة وبشرية تماماً.
+2. رد بناءً على بيانات القطيع المتاحة إذا كان سؤال المستخدم متعلقاً بها.
+${flockContext}\n\n`;
+
+        // 3. تجهيز النص بالطريقة القديمة الصريحة (صوت وصورة أو نص فقط)
+        let promptParts = [];
         
-        // تصفية النتيجة عشان نرجع الأسماء بس بشكل واصل ومقروء
-        const availableModels = [];
-        for await (const model of modelsList) {
-            availableModels.push({
-                name: model.name,
-                supportedMethods: model.supportedGenerationMethods
-            });
+        if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.length > 100) {
+            const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "").trim();
+            promptParts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
         }
 
-        // هنرجع اللستة دي للموبايل مباشرة عشان تشوفها بعينك على الشاشة!
-        res.status(200).json({ 
-            reply: `📋 الموديلات المتاحة لحسابك حالياً هي:\n\n${JSON.stringify(availableModels, null, 2)}` 
-        });
+        const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
+        
+        // بندمج الـ Instruction مع رسالة المستخدم مباشرة لأن الإصدار القديم مكنش فيه خاصية systemInstruction منفصلة
+        promptParts.push(systemInstruction + userText);
+
+        // إرسال الطلب (بالشكل القديم المباشر لمصفوفة الـ Parts)
+        const result = await model.generateContent(promptParts);
+        const response = await result.response;
+        const aiReply = response.text();
+
+        // 4. حفظ الرسالة والرد في قاعدة البيانات
+        await supabase.from('chat_messages').insert([
+            { user_id: userId, sender: 'user', content: userText },
+            { user_id: userId, sender: 'ai', content: aiReply }
+        ]);
+        
+        res.status(200).json({ reply: aiReply });
 
     } catch (err) {
-        console.error("🔥 List Models Error:", err.message || err);
-        res.status(200).json({ reply: `خطأ أثناء جلب الموديلات: ${err.message || err}` });
+        console.error("🔥 Old SDK Gemini Error:", err.message || err);
+        res.status(200).json({ reply: `خطأ السيرفر القديم: ${err.message || err}` });
     }
 });
 
