@@ -409,7 +409,7 @@ ${flockContext}`;
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         
 const model = ai.getGenerativeModel({ 
-    model: "gemini-1.5-flash", // رجعناه فلاش لأنه المدعوم في حسابك المجاني
+    model: "models/gemini-1.5-flash", // رجعناه فلاش لأنه المدعوم في حسابك المجاني
     systemInstruction: systemInstruction
 });
 
