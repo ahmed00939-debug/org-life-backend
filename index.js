@@ -458,27 +458,21 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 ${flockContext}
 ${historyText}`;
 
-        // استخدام الموديل المستقر المضمون للعمل مع أي نسخة SDK ومفتاحك الجديد
+        // استخدام الموديل gemini-1.0-pro لأنه الموديل الوحيد المدعوم في نسخة الـ SDK القديمة اللي عندك
         const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = ai.getGenerativeModel({ 
-            model: "gemini-1.5-flash" 
+            model: "gemini-1.0-pro" 
         });
 
-        // 4. تجهيز الرسالة الجديدة كـ Array مباشر (متوافق مع كل النسخ)
+        // 4. تجهيز الرسالة الجديدة كـ Array مباشر متوافق مع الإصدارات القديمة
         const parts = [];
-        const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
+        const userText = (message && message.trim() !== "") ? message : "مرحباً";
         
-        // إذا كان هناك صورة مرفوعة
-        if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.length > 100) {
-            const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "").trim();
-            parts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
-        }
-
-        // دمج التعليمات مع النص في الـ Prompt مباشرة لضمان أعلى توافق
+        // ملحوظة: موديل 1.0-pro نصي فقط، لذلك هندمج النص مباشرة لحل المشكلة فوراً
         const combinedPrompt = `${systemInstruction}\n\n[طلب المستخدم الحالي]: ${userText}`;
         parts.push(combinedPrompt);
 
-        // مناداة الـ API بالطريقة المباشرة السريعة
+        // مناداة الـ API بالطريقة المباشرة
         const result = await model.generateContent(parts);
         const aiReply = result.response.text();
 
