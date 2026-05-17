@@ -389,7 +389,7 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 const crypto = require('crypto'); // لو مش مستدعيها فوق، سيبها هنا
 
 // ==========================================
-// 🤖 مسار الذكاء الاصطناعي عبر الـ API المباشر (حل نهائي وبدون مكتبات)
+// 🤖 مسار الذكاء الاصطناعي بالـ API المباشر (الإصدار v1 المستقر والنهائي)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
@@ -406,7 +406,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 2. رد بناءً على بيانات القطيع المتاحة إذا كان سؤال المستخدم متعلقاً بها.
 ${flockContext}`;
 
-        // 2. تجهيز الـ Contents بأسلوب جوجل القياسي للـ API المباشر
+        // 2. تجهيز الـ Contents
         const requestParts = [];
 
         // دعم الصور لو موجودة
@@ -415,31 +415,35 @@ ${flockContext}`;
             requestParts.push({ inlineData: { data: cleanBase64, mimeType: "image/jpeg" } });
         }
 
-        // إضافة النص والتعليمات مدموجين لضمان قراءتها في أي إصدار
+        // إضافة النص
         const userText = (message && message.trim() !== "") ? message : "برجاء تحليل هذه الصورة.";
-        requestParts.push({ text: `${systemInstruction}\n\nسؤال المستخدم: ${userText}` });
+        requestParts.push({ text: userText });
 
-        // 3. إرسال الطلب مباشرة عبر HTTP POST بدون استخدام الـ SDK المعلق
+        // 3. إرسال الطلب مباشرة لـ v1 المستقر (الحل السحري)
         const apiKey = process.env.GEMINI_API_KEY;
-        const googleUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const googleUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
         const response = await fetch(googleUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                contents: [{ role: "user", parts: requestParts }]
+                contents: [{ role: "user", parts: requestParts }],
+                // تمرير الـ System Instructions بالهيكل الرسمي المدعوم في v1
+                systemInstruction: {
+                    parts: [{ text: systemInstruction }]
+                }
             })
         });
 
         const data = await response.json();
 
-        // التأكد من استجابة جوجل بشكل صحيح
+        // لو السيرفر رجع أي خطأ من جوجل
         if (!response.ok || data.error) {
             const errorMsg = data.error ? data.error.message : 'Unknown Google API Error';
             throw new Error(`Google HTTP ${response.status}: ${errorMsg}`);
         }
 
-        // استخراج الرد
+        // استخراج الرد بنجاح
         const aiReply = data.candidates[0].content.parts[0].text;
 
         // 4. حفظ الرسالة والرد في قاعدة البيانات
@@ -451,8 +455,8 @@ ${flockContext}`;
         return res.status(200).json({ reply: aiReply });
 
     } catch (err) {
-        console.error("🔥 Direct API Call Error:", err.message || err);
-        return res.status(200).json({ reply: `خطأ مباشر من السيرفر: ${err.message || err}` });
+        console.error("🔥 Final Direct API Error:", err.message || err);
+        return res.status(200).json({ reply: `خطأ من السيرفر: ${err.message || err}` });
     }
 });
 
