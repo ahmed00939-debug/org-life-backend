@@ -434,8 +434,8 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         let currentUserContent = userText;
 
         if (imageBase64) {
-            // ✨ التحديث الجديد: استخدام الموديل الصحيح للصور على Groq ✨
-            modelToUse = "llama-3.2-11b-vision-preview"; 
+            // ✨ التحديث الجديد: استخدام الموديل الأحدث والمعتمد للصور على Groq ✨
+            modelToUse = "meta-llama/llama-4-scout-17b-16e-instruct"; 
             currentUserContent = [
                 { type: "text", text: userText },
                 { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
