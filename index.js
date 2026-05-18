@@ -384,29 +384,85 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// 🤖 مساعد الذكاء الاصطناعي باستخدام Groq (البديل السريع والمجاني)
+// 🤖 مساعد الذكاء الاصطناعي (الصديق والمستشار الذكي - يدعم الصور)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
-        const { message } = req.body; 
+        // ضفنا استقبال الصورة كـ Base64
+        const { message, imageBase64 } = req.body; 
         const userId = req.user.userId; 
+        const userText = (message && message.trim() !== "") ? message : (imageBase64 ? "إيه رأيك في الصورة دي يا هندسة؟" : "أهلاً بك");
 
-        // 1. جلب بيانات القطيع لتهيئة السياق للـ AI
-        const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
-        let flockContext = flocks && flocks.length > 0 ? `\nبيانات مزارع المستخدم الحالية: ${JSON.stringify(flocks)}` : "";
-
-        // التعليمات الصارمة لشخصية الـ AI
-        const systemInstruction = `أنت مساعد ذكي، ودود، وخبير في المزارع والحيوانات.
-القواعد الصارمة:
-1. استخدم لهجة مصرية عامية ودودة وبشرية تماماً في كل ردودك.
-2. رد بناءً على بيانات القطيع المتاحة إذا كان سؤال المستخدم متعلقاً بها.
-${flockContext}`;
-
-        const userText = (message && message.trim() !== "") ? message : "أهلاً بك";
-
-        // 2. إرسال الطلب مباشرة لسيرفر Groq عبر الـ API المباشر
-        const groqApiKey = process.env.GROQ_API_KEY; 
+        // 1. تجميع بيانات المستخدم
+        const { data: flocks } = await supabase.from('flocks').select('flock_animaltype, flock_quantity, flock_arrivaldate').eq('user_id', userId);
         
+        const { data: calculations } = await supabase.from('feeding_calculations')
+            .select('corn_amount, wheat_amount, soybean_amount, feeding_frequency, created_at')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(3);
+
+        const { data: products } = await supabase.from('products').select('product_name, product_description');
+
+        const flocksText = flocks && flocks.length > 0 ? JSON.stringify(flocks) : "لا توجد قطعان مسجلة.";
+        const calcText = calculations && calculations.length > 0 ? JSON.stringify(calculations) : "لا توجد حسابات سابقة.";
+        const productsText = products && products.length > 0 ? JSON.stringify(products) : "لا توجد منتجات.";
+
+        // 2. هندسة الأوامر (System Prompt) - إضافة تعليمات الصور
+        const systemInstruction = `أنت "أورج-لايف" (Org-Life)، المساعد الشخصي والصديق الجدع للمزارع المصري.
+🎯 شخصيتك: ودود، محترف، وتتحدث باللهجة المصرية العامية الطبيعية.
+
+🧠 بيانات المستخدم الحالي:
+- قطعانه: ${flocksText}
+- حسابات الأعلاف السابقة: ${calcText}
+- منتجاتنا المتاحة: ${productsText}
+
+📸 تعليمات قراءة الصور (مهم جداً):
+1. إذا لم تكن الصورة لحيوان أو طير: أخبره بلطف وبطريقة كوميدية خفيفة أن هذه الصورة لا تحتوي على حيوانات.
+2. إذا كانت لحيوان/طير ليس من قطعانه: أعطه ملخصاً بسيطاً وسريعاً عن هذا الحيوان.
+3. إذا كانت الصورة لحيوان/طير **موجود في قطعانه المسجلة لديك**:
+   - قدم له شرحاً مفصلاً عن حالته وكيفية العناية به.
+   - اشرح له كيف يستخدم "المنتجات المتاحة لدينا" كبدائل للأعلاف، واربط ذلك بـ "حسابات الأعلاف السابقة" التي قام بها لضبط نسب (الذرة، الصويا، القمح).`;
+
+        // 3. ترتيب سجل المحادثة
+        const { data: history } = await supabase.from('chat_messages')
+            .select('sender, content')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+        let messagesForGroq = [ { role: "system", content: systemInstruction } ];
+
+        if (history && history.length > 0) {
+            const chronologicalHistory = history.reverse();
+            chronologicalHistory.forEach(msg => {
+                if (msg.content && typeof msg.content === 'string') {
+                    messagesForGroq.push({
+                        role: msg.sender === 'ai' ? 'assistant' : 'user',
+                        content: msg.content
+                    });
+                }
+            });
+        }
+
+        // 4. اختيار الموديل وتجهيز الرسالة الحالية (نص فقط أو نص + صورة)
+        let modelToUse = "llama-3.3-70b-versatile"; // الموديل الافتراضي للنصوص
+
+        if (imageBase64) {
+            modelToUse = "llama-3.2-11b-vision-preview"; // موديل الرؤية المجاني من Groq
+            messagesForGroq.push({
+                role: "user",
+                content: [
+                    { type: "text", text: userText },
+                    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
+                ]
+            });
+        } else {
+            messagesForGroq.push({ role: "user", content: userText });
+        }
+
+        // 5. إرسال الطلب لـ Groq
+        const groqApiKey = process.env.GROQ_API_KEY; 
         const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -414,11 +470,8 @@ ${flockContext}`;
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: "llama-3.3-70b-versatile",
-                messages: [
-                    { role: "system", content: systemInstruction },
-                    { role: "user", content: userText }
-                ],
+                model: modelToUse,
+                messages: messagesForGroq,
                 temperature: 0.7
             })
         });
@@ -430,12 +483,11 @@ ${flockContext}`;
             throw new Error(`Groq HTTP ${response.status}: ${errorMsg}`);
         }
 
-        // استخراج الرد بنجاح
         const aiReply = data.choices[0].message.content;
 
-        // 3. حفظ الرسالة والرد في قاعدة البيانات (Supabase)
+        // 6. حفظ الرسالة (النصية) في الداتا بيز
         await supabase.from('chat_messages').insert([
-            { user_id: userId, sender: 'user', content: userText },
+            { user_id: userId, sender: 'user', content: imageBase64 ? `[صورة مرفقة] ${userText}` : userText },
             { user_id: userId, sender: 'ai', content: aiReply }
         ]);
         
@@ -443,14 +495,8 @@ ${flockContext}`;
 
     } catch (err) {
         console.error("🔥 Groq AI Error:", err.message || err);
-        return res.status(200).json({ reply: `خطأ من السيرفر: ${err.message || err}` });
+        return res.status(200).json({ reply: `معلش يا غالي، السيرفر مريح شوية: ${err.message || err}` });
     }
 });
-
-if (process.env.NODE_ENV !== 'production') {
-    app.listen(port, () => {
-        console.log(`🚀 Server is running on port ${port}`);
-    });
-}
 
 module.exports = app;
