@@ -384,47 +384,78 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// 🤖 مساعد الذكاء الاصطناعي (الصديق والمستشار الذكي - يدعم الصور)
+// 🤖 مساعد الذكاء الاصطناعي الخارق والمربوط بكل بيانات السيستم
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
-        // ضفنا استقبال الصورة كـ Base64
         const { message, imageBase64 } = req.body; 
         const userId = req.user.userId; 
-        const userText = (message && message.trim() !== "") ? message : (imageBase64 ? "إيه رأيك في الصورة دي يا هندسة؟" : "أهلاً بك");
-
-        // 1. تجميع بيانات المستخدم
-        const { data: flocks } = await supabase.from('flocks').select('flock_animaltype, flock_quantity, flock_arrivaldate').eq('user_id', userId);
         
+        // تجهيز نص افتراضي مبدئي
+        const userText = (message && message.trim() !== "") ? message : (imageBase64 ? "Look at this image" : "Hello");
+
+        // 🌟 [ربط كل بيانات الـ Application كلو] 🌟
+        
+        // أ. جلب بيانات المستخدم لمعرفة اسمه وتفاصيله (User)
+        const { data: userProfile } = await supabase.from('users').select('name, email').eq('id', userId).maybeSingle();
+        const userName = userProfile?.name || "يا هندسة";
+
+        // ب. جلب بيانات القطعان (Flocks)
+        const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
+        
+        // ج. جلب آخر 3 حسابات أعلاف (Feeding Calculations)
         const { data: calculations } = await supabase.from('feeding_calculations')
-            .select('corn_amount, wheat_amount, soybean_amount, feeding_frequency, created_at')
+            .select('*')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .limit(3);
 
-        const { data: products } = await supabase.from('products').select('product_name, product_description');
+        // د. جلب المنتجات المتاحة (Products)
+        const { data: products } = await supabase.from('products').select('*');
 
-        const flocksText = flocks && flocks.length > 0 ? JSON.stringify(flocks) : "لا توجد قطعان مسجلة.";
-        const calcText = calculations && calculations.length > 0 ? JSON.stringify(calculations) : "لا توجد حسابات سابقة.";
-        const productsText = products && products.length > 0 ? JSON.stringify(products) : "لا توجد منتجات.";
+        // هـ. جلب فئات المنتجات (Product Categories)
+        const { data: categories } = await supabase.from('product_categories').select('*');
 
-        // 2. هندسة الأوامر (System Prompt) - إضافة تعليمات الصور
-        const systemInstruction = `أنت "أورج-لايف" (Org-Life)، المساعد الشخصي والصديق الجدع للمزارع المصري.
-🎯 شخصيتك: ودود، محترف، وتتحدث باللهجة المصرية العامية الطبيعية.
+        // و. جلب آخر 5 طلبات قام بها المستخدم (Orders)
+        const { data: orders } = await supabase.from('orders')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(5);
 
-🧠 بيانات المستخدم الحالي:
-- قطعانه: ${flocksText}
-- حسابات الأعلاف السابقة: ${calcText}
-- منتجاتنا المتاحة: ${productsText}
+        // تحويل كل البيانات المجلوبة إلى نصوص واضحة ليقرأها الـ AI ويفهم سياق الأبلكيشن بالكامل
+        const flocksText = flocks && flocks.length > 0 ? JSON.stringify(flocks) : "No flocks registered yet.";
+        const calcText = calculations && calculations.length > 0 ? JSON.stringify(calculations) : "No recent feeding calculations.";
+        const productsText = products && products.length > 0 ? JSON.stringify(products) : "No products available in the store.";
+        const categoriesText = categories && categories.length > 0 ? JSON.stringify(categories) : "No product categories defined.";
+        const ordersText = orders && orders.length > 0 ? JSON.stringify(orders) : "No orders placed by this user yet.";
 
-📸 تعليمات قراءة الصور (مهم جداً):
-1. إذا لم تكن الصورة لحيوان أو طير: أخبره بلطف وبطريقة كوميدية خفيفة أن هذه الصورة لا تحتوي على حيوانات.
-2. إذا كانت لحيوان/طير ليس من قطعانه: أعطه ملخصاً بسيطاً وسريعاً عن هذا الحيوان.
-3. إذا كانت الصورة لحيوان/طير **موجود في قطعانه المسجلة لديك**:
-   - قدم له شرحاً مفصلاً عن حالته وكيفية العناية به.
-   - اشرح له كيف يستخدم "المنتجات المتاحة لدينا" كبدائل للأعلاف، واربط ذلك بـ "حسابات الأعلاف السابقة" التي قام بها لضبط نسب (الذرة، الصويا، القمح).`;
+        // 🧠 هندسة الأوامر (System Prompt) - لغة ديناميكية، معرفة الاسم، والربط الكامل
+        const systemInstruction = `You are "Org-Life AI Assistant", the ultimate personal companion, advisor, and friend for the user in this application.
 
-        // 3. ترتيب سجل المحادثة
+🎯 LANGUAGE & PERSONA DYNAMIC RULE (CRITICAL):
+1. ALWAYS address the user by their name: "${userName}". Greet them personally and weave their name naturally into the chat.
+2. DYNAMIC LANGUAGE SWITCH: Detect the language the user is speaking in. 
+   - If the user writes in ARABIC, reply in friendly, warm, and professional Egyptian Arabic (e.g., using terms like "يا غالي", "يا هندسة", "تحت أمرك يا ${userName}").
+   - If the user writes in ENGLISH, reply in natural, friendly, professional, and clear English. Never mix them unless quoting a product name.
+
+📊 COMPLETE APPLICATION LIVE DATA CONTEXT:
+- User Profile: Name is "${userName}", ID: ${userId}
+- User's Flocks: ${flocksText}
+- User's Recent Feeding Calculations: ${calcText}
+- User's Past Orders: ${ordersText}
+- Store Available Products: ${productsText}
+- Store Product Categories: ${categoriesText}
+
+💡 INTELLECTUAL CAPABILITIES & INSTRUCTIONS:
+- You know EVERYTHING happening in the user's account. If they ask about their orders, refer to the "Past Orders" data. If they ask about their mix, refer to "Feeding Calculations".
+- Cross-Recommend: Use the categories and products data to suggest the right alternative feeds or supplements depending on the animals they have in their "Flocks".
+- Camera/Vision Processing: 
+  * If the image has NO farm animals/birds/fish, kindly and humorously guide them back to farm topics.
+  * If it is an animal they already own in their "Flocks", give an extensively detailed guide and connect it with their custom feeding ratios.
+  * If it's a general farm animal they don't own, provide a summary.`;
+
+        // 2. سحب سجل الرسائل (آخر 5 رسائل) للذاكرة المستمرة
         const { data: history } = await supabase.from('chat_messages')
             .select('sender, content')
             .eq('user_id', userId)
@@ -445,11 +476,11 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             });
         }
 
-        // 4. اختيار الموديل وتجهيز الرسالة الحالية (نص فقط أو نص + صورة)
-        let modelToUse = "llama-3.3-70b-versatile"; // الموديل الافتراضي للنصوص
+        // 3. اختيار الموديل (نص أم رؤية بصرية وصور)
+        let modelToUse = "llama-3.3-70b-versatile"; 
 
         if (imageBase64) {
-            modelToUse = "llama-3.2-11b-vision-preview"; // موديل الرؤية المجاني من Groq
+            modelToUse = "llama-3.2-11b-vision-preview"; 
             messagesForGroq.push({
                 role: "user",
                 content: [
@@ -461,7 +492,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             messagesForGroq.push({ role: "user", content: userText });
         }
 
-        // 5. إرسال الطلب لـ Groq
+        // 4. إرسال الطلب إلى Groq
         const groqApiKey = process.env.GROQ_API_KEY; 
         const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
@@ -485,9 +516,9 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 
         const aiReply = data.choices[0].message.content;
 
-        // 6. حفظ الرسالة (النصية) في الداتا بيز
+        // 5. حفظ الرسالة في قاعدة البيانات
         await supabase.from('chat_messages').insert([
-            { user_id: userId, sender: 'user', content: imageBase64 ? `[صورة مرفقة] ${userText}` : userText },
+            { user_id: userId, sender: 'user', content: imageBase64 ? `[📸 Image Attached] ${userText}` : userText },
             { user_id: userId, sender: 'ai', content: aiReply }
         ]);
         
@@ -495,7 +526,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 
     } catch (err) {
         console.error("🔥 Groq AI Error:", err.message || err);
-        return res.status(200).json({ reply: `معلش يا غالي، السيرفر مريح شوية: ${err.message || err}` });
+        return res.status(200).json({ reply: `Server Error: ${err.message || err}` });
     }
 });
 
