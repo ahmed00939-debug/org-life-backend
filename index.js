@@ -476,14 +476,13 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             });
         }
 
-        // ⚡️ التحديد الديناميكي لنوع الموديل ومحتوى الرسالة (حل إيرور الـ 400) ⚡️
 // ⚡️ التحديد الديناميكي لنوع الموديل ومحتوى الرسالة ⚡️
         let modelToUse = "llama-3.3-70b-versatile"; 
         let currentUserContent = userText;
 
         if (imageBase64) {
-            // 🌟 التعديل هنا: استخدمنا الموديل البصري الأحدث المدعوم من Groq
-            modelToUse = "llama-3.2-90b-vision-preview"; 
+            // 🌟 التعديل هنا: استخدام النسخة النهائية المستقرة المعتمدة من Groq
+            modelToUse = "llama-3.2-11b-vision-instruct"; 
             currentUserContent = [
                 { type: "text", text: userText },
                 { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
