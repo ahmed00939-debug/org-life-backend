@@ -384,99 +384,100 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// 🤖 مساعد الذكاء الاصطناعي الخارق (مربوط بكل الداتا بيز + Llama 4 Vision)
+// 🤖 مساعد الذكاء الاصطناعي الخارق (مطابق لـ Schema الداتا بيز بالظبط)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
         const { message, imageBase64 } = req.body; 
-        const userId = req.user.userId; 
+        const userId = req.user.userId; // تأكد أن التوكن يمرر الـ ID كـ integer مطابق لـ user_id
         
         const userText = (message && message.trim() !== "") ? message : (imageBase64 ? "Look at this image" : "Hello");
 
-        // 🌟 [ربط كل بيانات الجداول اللي ظهرت في الصورة بالظبط] 🌟
+        // 🌟 [جلب البيانات بناءً على الـ DDL الرسمي الخاص بك] 🌟
         
-        // 1. جلب بيانات المستخدم من جدول (users)
-        // ضفنا full_name كاحتياطي لو إنت مسمي العمود كده بدل name
-        const { data: userProfile } = await supabase.from('users').select('*').eq('id', userId).maybeSingle();
-        const userName = userProfile?.name || userProfile?.full_name || "يا هندسة";
+        // 1. جلب بيانات المستخدم باستخدام user_id و user_fullname
+        const { data: userProfile } = await supabase
+            .from('users')
+            .select('user_fullname, user_email, user_phone_number')
+            .eq('user_id', userId)
+            .maybeSingle();
+            
+        const userName = userProfile?.user_fullname || "يا هندسة";
 
-        // 2. جلب بيانات القطعان (flocks)
-        const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
-        
-        // 3. جلب الحسابات (feeding_calculation)
-        const { data: calculations } = await supabase.from('feeding_calculation')
+        // 2. جلب حسابات التغذية من جدول feeding_calculations
+        const { data: calculations } = await supabase
+            .from('feeding_calculations')
             .select('*')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .limit(3);
 
-        // 4. جلب بدائل الأعلاف (fodder_alternatives) - الجدول الجديد!
-        const { data: fodderAlts } = await supabase.from('fodder_alternatives').select('*');
+        // 3. جلب المخزون من جدول fodder
+        const { data: fodderStock } = await supabase
+            .from('fodder')
+            .select('*');
 
-        // 5. جلب المنتجات والأقسام (products & product_categories)
-        const { data: products } = await supabase.from('products').select('*');
-        const { data: categories } = await supabase.from('product_categories').select('*');
+        // 4. جلب المنتجات وأقسامها product_category و products
+        const { data: categories } = await supabase
+            .from('product_category')
+            .select('*');
 
-        // 6. جلب الطلبات (orders)
-        const { data: orders } = await supabase.from('orders')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(3);
+        const { data: products } = await supabase
+            .from('products')
+            .select('*');
 
-        // تحويل البيانات لنصوص
-        const flocksText = flocks && flocks.length > 0 ? JSON.stringify(flocks) : "No flocks registered yet.";
+        // تحويل البيانات المسترجعة لنصوص يفهمها الـ AI context
         const calcText = calculations && calculations.length > 0 ? JSON.stringify(calculations) : "No recent feeding calculations.";
-        const fodderAltsText = fodderAlts && fodderAlts.length > 0 ? JSON.stringify(fodderAlts) : "No fodder alternatives recorded.";
+        const fodderText = fodderStock && fodderStock.length > 0 ? JSON.stringify(fodderStock) : "No current fodder inventory data.";
+        const categoriesText = categories && categories.length > 0 ? JSON.stringify(categories) : "No product categories found.";
         const productsText = products && products.length > 0 ? JSON.stringify(products) : "No products available in store.";
-        const categoriesText = categories && categories.length > 0 ? JSON.stringify(categories) : "No categories defined.";
-        const ordersText = orders && orders.length > 0 ? JSON.stringify(orders) : "No orders placed yet.";
 
-        // 🧠 الـ System Prompt الذكي والمتحول لغوياً
-        const systemInstruction = `You are "Org-Life AI Assistant", the ultimate personalized companion, smart advisor, and support system for the user.
+        // 🧠 الـ System Prompt الذكي والمتحول لغوياً بناءً على جداولك
+        const systemInstruction = `You are "Org-Life AI Assistant", an expert agricultural and animal feeding advisor.
 
 🎯 LANGUAGE & PERSONALIZATION RULES:
-1. You MUST always address the user by their real name: "${userName}" in a natural and friendly way.
+1. You MUST always address the user by their real full name: "${userName}" in a natural and friendly way.
 2. AUTOMATIC LANGUAGE SWITCH: Seamlessly detect and reply in the language the user uses.
    - If they talk in ARABIC: Reply in warm, professional Egyptian Arabic (e.g., "يا غالي", "يا هندسة", "تحت أمرك يا ${userName}").
    - If they talk in ENGLISH: Reply in clear, professional, and friendly English. Never mix them.
 
-📊 FULL APPLICATION LIVE CONTEXT DATA:
-- User Profile: Name is "${userName}", Database ID: ${userId}
-- User's Flocks Data: ${flocksText}
-- User's Feeding Calculations: ${calcText}
-- Available Fodder Alternatives: ${fodderAltsText}
-- Available Store Products: ${productsText}
-- Product Categories: ${categoriesText}
-- User's Orders History: ${ordersText}
+📊 LIVE DATABASE CONTEXT (Use this to answer user questions):
+- Current User: Name is "${userName}", Database User ID: ${userId}
+- User's Feeding Calculations (from feeding_calculations): ${calcText}
+  (Note: Columns are corn_amount, wheat_amount, soybean_amount, feeding_frequency)
+- Current Fodder Inventory (from fodder): ${fodderText}
+- Store Categories (from product_category): ${categoriesText}
+- Available Products (from products): ${productsText}
 
 💡 CORE CAPABILITIES:
-- Act as an expert in animal feeding. If they ask about feed, use "Feeding Calculations" and suggest cheaper/better options from "Fodder Alternatives".
-- Recommend Store Products based on the animals they have in their Flocks.
-- Answer any question about their past orders.
+- If the user asks about their feed calculations, review their corn, wheat, or soybean amounts and give professional tips.
+- Recommend store products matching their needs based on fodder data.
 - Image/Vision Rules:
-  * If the image has NO farm animals/birds/crops, humorously remind them you focus on farming.
-  * If it's an animal from their "Flocks", give a highly detailed clinical and feeding guide.`;
+  * Analyze images with high accuracy. If it's a farm animal, crop, or feed ingredient (corn/wheat/soybean), relate it to their data.`;
 
-        // 🛑 سحب سجل الرسائل السابقة
-        const { data: history } = await supabase.from('chat_messages')
-            .select('sender, content')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(5);
-
+        // 🛑 سحب سجل الرسائل السابقة (إن وجد جدول chat_messages)
         let messagesForGroq = [ { role: "system", content: systemInstruction } ];
+        
+        try {
+            const { data: history } = await supabase
+                .from('chat_messages')
+                .select('sender, content')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false })
+                .limit(5);
 
-        if (history && history.length > 0) {
-            const chronologicalHistory = history.reverse();
-            chronologicalHistory.forEach(msg => {
-                if (msg.content && typeof msg.content === 'string') {
-                    messagesForGroq.push({
-                        role: msg.sender === 'ai' ? 'assistant' : 'user',
-                        content: msg.content
-                    });
-                }
-            });
+            if (history && history.length > 0) {
+                history.reverse().forEach(msg => {
+                    if (msg.content && typeof msg.content === 'string') {
+                        messagesForGroq.push({
+                            role: msg.sender === 'ai' ? 'assistant' : 'user',
+                            content: msg.content
+                        });
+                    }
+                });
+            }
+        } catch (e) {
+            console.log("Chat history fetch skipped or table doesn't exist yet.");
         }
 
         // ⚡️ التحديد الديناميكي لموديل الصور الجديد (Llama 4 Scout) ⚡️
@@ -484,7 +485,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         let currentUserContent = userText;
 
         if (imageBase64) {
-            modelToUse = "meta-llama/llama-4-scout-17b-16e-instruct"; // الموديل الجديد المعتمد من Groq للصور
+            modelToUse = "meta-llama/llama-4-scout-17b-16e-instruct"; 
             currentUserContent = [
                 { type: "text", text: userText },
                 { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
@@ -517,11 +518,13 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 
         const aiReply = data.choices[0].message.content;
 
-        // حفظ الرسالة في الداتا بيز
-        await supabase.from('chat_messages').insert([
-            { user_id: userId, sender: 'user', content: imageBase64 ? `[📸 Image] ${userText}` : userText },
-            { user_id: userId, sender: 'ai', content: aiReply }
-        ]);
+        // حفظ الرسالة في الداتا بيز (إختياري)
+        try {
+            await supabase.from('chat_messages').insert([
+                { user_id: userId, sender: 'user', content: imageBase64 ? `[📸 Image] ${userText}` : userText },
+                { user_id: userId, sender: 'ai', content: aiReply }
+            ]);
+        } catch (e) {}
         
         return res.status(200).json({ reply: aiReply });
 
