@@ -373,21 +373,13 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         const userText = (message && message.trim() !== "") ? message : (imageBase64 ? "حلل هذه الصورة بناءً على بياناتي" : "Hello");
 
         // 🌟 [1] سحب كل بيانات المستخدم والعمليات الحية من الداتا بيز 🌟
-        
-        // أ. بيانات المستخدم
         const { data: userProfile } = await supabase.from('users').select('user_fullname').eq('user_id', userId).maybeSingle();
-        const userName = userProfile?.user_fullname || "يا هندسة";
+        // التأكد من جلب الاسم الأول فقط أو الاسم بالكامل بشكل صحيح
+        const userName = userProfile?.user_fullname ? userProfile.user_fullname.trim() : "يا هندسة";
 
-        // ب. القطعان (Flocks)
         const { data: flocks } = await supabase.from('flocks').select('flock_animaltype, flock_quantity').eq('user_id', userId);
-
-        // ج. حسابات التغذية السابقة
         const { data: calculations } = await supabase.from('feeding_calculations').select('corn_amount, wheat_amount, soybean_amount, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(3);
-
-        // د. المخزون (Fodder)
         const { data: fodderStock } = await supabase.from('fodder').select('fodder_type, fodder_amount');
-
-        // هـ. الطلبات السابقة للمستخدم (Orders) - ✨ التحديث الجديد ✨
         const { data: recentOrders } = await supabase.from('orders').select('order_total_price, order_status, order_date').eq('user_id', userId).order('order_date', { ascending: false }).limit(2);
 
         // 🌟 [2] تحويل البيانات لنصوص 🌟
@@ -399,12 +391,12 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         // 🌟 [3] الـ System Prompt (عقل الـ AI المربوط بالبيانات) 🌟
         const systemInstruction = `You are "Org-Life AI Assistant", an expert agricultural and animal feeding advisor.
 
-🎯 CRITICAL LANGUAGE RULES:
-- If the user speaks Arabic: Reply strictly in 100% Egyptian Arabic (العامية المصرية). Use terms like (يا هندسة، يا غالي، عشان، إزاي). NEVER use Fusha.
-- If the user speaks English: Reply in clear, professional English.
-- Always address the user by their real full name: "${userName}".
+🎯 CRITICAL LANGUAGE & NAME RULES (MUST FOLLOW):
+1. User's EXACT Name: "${userName}". You MUST ONLY address the user by this exact name or the phrase "يا هندسة". DO NOT invent, guess, or use any other names.
+2. If the user speaks Arabic, reply STRICTLY in 100% Egyptian Arabic (العامية المصرية).
+3. PROHIBITION: NEVER use Chinese, Japanese, or any other unrelated characters. No weird symbols. Only Arabic or English letters.
 
-📊 REAL-TIME USER DATA (Use this to answer dynamically based on their actual app usage):
+📊 REAL-TIME USER DATA:
 - User Name: ${userName}
 - User's Animals/Flocks: ${flocksText}
 - User's Recent Feed Calculations: ${calcText}
@@ -412,9 +404,9 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 - Current Fodder Inventory: ${fodderText}
 
 💡 HOW TO BEHAVE & IMAGE ANALYSIS:
-1. Context Aware: If they ask about feeding, check their "Flocks" and "Recent Calculations".
-2. Orders Check: If they ask about purchases, check their "Recent Orders".
-3. Image/Vision Analysis: If an image is uploaded, analyze it thoroughly. If it's an animal, crop, or feed (like corn or wheat), connect it to their actual "Flocks" or "Fodder Inventory". For example: "I see a sick chicken in the image, and I notice you have a flock of chickens..."`;
+1. Context Aware: Check "Flocks" and "Calculations" for feeding questions.
+2. Orders Check: Check "Recent Orders" for purchase questions.
+3. Image Analysis: Connect any uploaded image (animals/crops/feed) directly to the user's "Flocks" or "Fodder Inventory" context.`;
 
         // 🌟 [4] سحب سجل المحادثة 🌟
         let messagesForGroq = [ { role: "system", content: systemInstruction } ];
@@ -430,11 +422,10 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         } catch (e) { console.log("Chat history skip"); }
 
         // 🌟 [5] تحديد الموديل وإرسال الطلب لـ Groq 🌟
-        let modelToUse = "llama-3.3-70b-versatile"; // الموديل العادي للمحادثات النصية الذكية
+        let modelToUse = "llama-3.3-70b-versatile"; 
         let currentUserContent = userText;
 
         if (imageBase64) {
-            // ✨ التحديث الجديد: استخدام الموديل الأحدث والمعتمد للصور على Groq ✨
             modelToUse = "meta-llama/llama-4-scout-17b-16e-instruct"; 
             currentUserContent = [
                 { type: "text", text: userText },
@@ -454,7 +445,10 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             body: JSON.stringify({
                 model: modelToUse, 
                 messages: messagesForGroq, 
-                temperature: 0.7
+                // ✨ التحديث هنا: تقليل الإبداع لمنع الهلوسة والكلمات الصيني ✨
+                temperature: 0.3, 
+                top_p: 0.9,
+                max_tokens: 1024
             })
         });
 
