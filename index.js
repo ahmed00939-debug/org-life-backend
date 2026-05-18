@@ -384,78 +384,78 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// 🤖 مساعد الذكاء الاصطناعي الخارق والمربوط بكل بيانات السيستم
+// 🤖 مساعد الذكاء الاصطناعي الخارق (الربط الشامل بالسيستم والدعم الذكي للغات والصور)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
         const { message, imageBase64 } = req.body; 
         const userId = req.user.userId; 
         
-        // تجهيز نص افتراضي مبدئي
+        // تجهيز نص افتراضي في حالة إرسال صورة بدون نص
         const userText = (message && message.trim() !== "") ? message : (imageBase64 ? "Look at this image" : "Hello");
 
-        // 🌟 [ربط كل بيانات الـ Application كلو] 🌟
+        // 🌟 [ربط كل بيانات الـ Application بالأسماء المحددة بالظبط] 🌟
         
-        // أ. جلب بيانات المستخدم لمعرفة اسمه وتفاصيله (User)
-        const { data: userProfile } = await supabase.from('users').select('name, email').eq('id', userId).maybeSingle();
+        // 1. جلب بيانات المستخدم لمعرفة اسمه وتفاصيله من جدول (user)
+        const { data: userProfile } = await supabase.from('user').select('name, email').eq('id', userId).maybeSingle();
         const userName = userProfile?.name || "يا هندسة";
 
-        // ب. جلب بيانات القطعان (Flocks)
+        // 2. جلب بيانات القطعان من جدول (flocks)
         const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
         
-        // ج. جلب آخر 3 حسابات أعلاف (Feeding Calculations)
-        const { data: calculations } = await supabase.from('feeding_calculations')
+        // 3. جلب آخر حسابات أعلاف من جدول (feeding_calculation)
+        const { data: calculations } = await supabase.from('feeding_calculation')
             .select('*')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .limit(3);
 
-        // د. جلب المنتجات المتاحة (Products)
+        // 4. جلب المنتجات المتاحة من جدول (products)
         const { data: products } = await supabase.from('products').select('*');
 
-        // هـ. جلب فئات المنتجات (Product Categories)
-        const { data: categories } = await supabase.from('product_categories').select('*');
+        // 5. جلب فئات وأقسام المنتجات من جدول (products_category)
+        const { data: categories } = await supabase.from('products_category').select('*');
 
-        // و. جلب آخر 5 طلبات قام بها المستخدم (Orders)
+        // 6. جلب آخر طلبات المستخدم من جدول (orders)
         const { data: orders } = await supabase.from('orders')
             .select('*')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
-            .limit(5);
+            .limit(3);
 
-        // تحويل كل البيانات المجلوبة إلى نصوص واضحة ليقرأها الـ AI ويفهم سياق الأبلكيشن بالكامل
+        // تحويل البيانات لنصوص مفهومة للـ AI ليعرف سياق الحساب بالكامل
         const flocksText = flocks && flocks.length > 0 ? JSON.stringify(flocks) : "No flocks registered yet.";
         const calcText = calculations && calculations.length > 0 ? JSON.stringify(calculations) : "No recent feeding calculations.";
-        const productsText = products && products.length > 0 ? JSON.stringify(products) : "No products available in the store.";
-        const categoriesText = categories && categories.length > 0 ? JSON.stringify(categories) : "No product categories defined.";
-        const ordersText = orders && orders.length > 0 ? JSON.stringify(orders) : "No orders placed by this user yet.";
+        const productsText = products && products.length > 0 ? JSON.stringify(products) : "No products available in store.";
+        const categoriesText = categories && categories.length > 0 ? JSON.stringify(categories) : "No categories defined.";
+        const ordersText = orders && orders.length > 0 ? JSON.stringify(orders) : "No orders placed yet.";
 
-        // 🧠 هندسة الأوامر (System Prompt) - لغة ديناميكية، معرفة الاسم، والربط الكامل
-        const systemInstruction = `You are "Org-Life AI Assistant", the ultimate personal companion, advisor, and friend for the user in this application.
+        // 🧠 الـ System Prompt الذكي والمتحول لغوياً
+        const systemInstruction = `You are "Org-Life AI Assistant", the ultimate personalized companion, smart advisor, and support system for the user.
 
-🎯 LANGUAGE & PERSONA DYNAMIC RULE (CRITICAL):
-1. ALWAYS address the user by their name: "${userName}". Greet them personally and weave their name naturally into the chat.
-2. DYNAMIC LANGUAGE SWITCH: Detect the language the user is speaking in. 
-   - If the user writes in ARABIC, reply in friendly, warm, and professional Egyptian Arabic (e.g., using terms like "يا غالي", "يا هندسة", "تحت أمرك يا ${userName}").
-   - If the user writes in ENGLISH, reply in natural, friendly, professional, and clear English. Never mix them unless quoting a product name.
+🎯 LANGUAGE & PERSONALIZATION RULES:
+1. You MUST always address the user by their real name: "${userName}" in a natural and friendly way.
+2. AUTOMATIC LANGUAGE SWITCH: Seamlessly detect and reply in the language the user uses.
+   - If they talk in ARABIC: Reply in warm, professional Egyptian Arabic (e.g., "يا غالي", "يا هندسة", "تحت أمرك يا ${userName}").
+   - If they talk in ENGLISH: Reply in clear, professional, and friendly English. Never mix them randomly.
 
-📊 COMPLETE APPLICATION LIVE DATA CONTEXT:
-- User Profile: Name is "${userName}", ID: ${userId}
-- User's Flocks: ${flocksText}
-- User's Recent Feeding Calculations: ${calcText}
-- User's Past Orders: ${ordersText}
-- Store Available Products: ${productsText}
-- Store Product Categories: ${categoriesText}
+📊 FULL APPLICATION LIVE CONTEXT DATA:
+- User Profile: Name is "${userName}", Database ID: ${userId}
+- User's Flocks Data: ${flocksText}
+- User's Feeding Calculations: ${calcText}
+- User's Orders History: ${ordersText}
+- Available Store Products: ${productsText}
+- Product Categories: ${categoriesText}
 
-💡 INTELLECTUAL CAPABILITIES & INSTRUCTIONS:
-- You know EVERYTHING happening in the user's account. If they ask about their orders, refer to the "Past Orders" data. If they ask about their mix, refer to "Feeding Calculations".
-- Cross-Recommend: Use the categories and products data to suggest the right alternative feeds or supplements depending on the animals they have in their "Flocks".
-- Camera/Vision Processing: 
-  * If the image has NO farm animals/birds/fish, kindly and humorously guide them back to farm topics.
-  * If it is an animal they already own in their "Flocks", give an extensively detailed guide and connect it with their custom feeding ratios.
-  * If it's a general farm animal they don't own, provide a summary.`;
+💡 CORE CAPABILITIES:
+- Answer any question about their account, orders, or feeding ratios using the data above.
+- Recommend alternative feeds from the "Store Products" based on the animals they have in their "Flocks".
+- Image/Vision Rules:
+  * If the image has NO farm animals/birds/crops, kindly and humorously remind them you focus on farming.
+  * If it's an animal from their own "Flocks", give a highly detailed clinical guide matching their feed calculation ratios.
+  * If it's a general animal, summarize its facts briefly.`;
 
-        // 2. سحب سجل الرسائل (آخر 5 رسائل) للذاكرة المستمرة
+        // 🛑 سحب سجل الرسائل السابقة للذاكرة المستمرة
         const { data: history } = await supabase.from('chat_messages')
             .select('sender, content')
             .eq('user_id', userId)
@@ -476,23 +476,21 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             });
         }
 
-        // 3. اختيار الموديل (نص أم رؤية بصرية وصور)
+        // ⚡️ التحديد الديناميكي لنوع الموديل ومحتوى الرسالة (حل إيرور الـ 400) ⚡️
         let modelToUse = "llama-3.3-70b-versatile"; 
+        let currentUserContent = userText;
 
         if (imageBase64) {
-            modelToUse = "llama-3.2-11b-vision-preview"; 
-            messagesForGroq.push({
-                role: "user",
-                content: [
-                    { type: "text", text: userText },
-                    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
-                ]
-            });
-        } else {
-            messagesForGroq.push({ role: "user", content: userText });
+            modelToUse = "llama-3.2-11b-vision-preview"; // الانتقال التلقائي لموديل الصور
+            currentUserContent = [
+                { type: "text", text: userText },
+                { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
+            ];
         }
 
-        // 4. إرسال الطلب إلى Groq
+        messagesForGroq.push({ role: "user", content: currentUserContent });
+
+        // 🚀 إرسال الطلب الديناميكي لـ Groq
         const groqApiKey = process.env.GROQ_API_KEY; 
         const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
@@ -501,8 +499,8 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: modelToUse,
-                messages: messagesForGroq,
+                model: modelToUse, // متغير ديناميكي وليس ثابت
+                messages: messagesForGroq, // مصفوفة ديناميكية بالكامل
                 temperature: 0.7
             })
         });
@@ -516,9 +514,9 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 
         const aiReply = data.choices[0].message.content;
 
-        // 5. حفظ الرسالة في قاعدة البيانات
+        // حفظ الرسالة النصية في سجل المحادثات
         await supabase.from('chat_messages').insert([
-            { user_id: userId, sender: 'user', content: imageBase64 ? `[📸 Image Attached] ${userText}` : userText },
+            { user_id: userId, sender: 'user', content: imageBase64 ? `[📸 Image] ${userText}` : userText },
             { user_id: userId, sender: 'ai', content: aiReply }
         ]);
         
@@ -526,8 +524,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 
     } catch (err) {
         console.error("🔥 Groq AI Error:", err.message || err);
-        return res.status(200).json({ reply: `Server Error: ${err.message || err}` });
+        return res.status(200).json({ reply: `Error: ${err.message || err}` });
     }
 });
-
 module.exports = app;
