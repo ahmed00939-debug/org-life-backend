@@ -384,48 +384,50 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// 🤖 مساعد الذكاء الاصطناعي الخارق (الربط الشامل بالسيستم والدعم الذكي للغات والصور)
+// 🤖 مساعد الذكاء الاصطناعي الخارق (مربوط بكل الداتا بيز + Llama 4 Vision)
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
         const { message, imageBase64 } = req.body; 
         const userId = req.user.userId; 
         
-        // تجهيز نص افتراضي في حالة إرسال صورة بدون نص
         const userText = (message && message.trim() !== "") ? message : (imageBase64 ? "Look at this image" : "Hello");
 
-        // 🌟 [ربط كل بيانات الـ Application بالأسماء المحددة بالظبط] 🌟
+        // 🌟 [ربط كل بيانات الجداول اللي ظهرت في الصورة بالظبط] 🌟
         
-        // 1. جلب بيانات المستخدم لمعرفة اسمه وتفاصيله من جدول (user)
-        const { data: userProfile } = await supabase.from('user').select('name, email').eq('id', userId).maybeSingle();
-        const userName = userProfile?.name || "يا هندسة";
+        // 1. جلب بيانات المستخدم من جدول (users)
+        // ضفنا full_name كاحتياطي لو إنت مسمي العمود كده بدل name
+        const { data: userProfile } = await supabase.from('users').select('*').eq('id', userId).maybeSingle();
+        const userName = userProfile?.name || userProfile?.full_name || "يا هندسة";
 
-        // 2. جلب بيانات القطعان من جدول (flocks)
+        // 2. جلب بيانات القطعان (flocks)
         const { data: flocks } = await supabase.from('flocks').select('*').eq('user_id', userId);
         
-        // 3. جلب آخر حسابات أعلاف من جدول (feeding_calculation)
+        // 3. جلب الحسابات (feeding_calculation)
         const { data: calculations } = await supabase.from('feeding_calculation')
             .select('*')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .limit(3);
 
-        // 4. جلب المنتجات المتاحة من جدول (products)
+        // 4. جلب بدائل الأعلاف (fodder_alternatives) - الجدول الجديد!
+        const { data: fodderAlts } = await supabase.from('fodder_alternatives').select('*');
+
+        // 5. جلب المنتجات والأقسام (products & product_categories)
         const { data: products } = await supabase.from('products').select('*');
+        const { data: categories } = await supabase.from('product_categories').select('*');
 
-        // 5. جلب فئات وأقسام المنتجات من جدول (products_category)
-        const { data: categories } = await supabase.from('products_category').select('*');
-
-        // 6. جلب آخر طلبات المستخدم من جدول (orders)
+        // 6. جلب الطلبات (orders)
         const { data: orders } = await supabase.from('orders')
             .select('*')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .limit(3);
 
-        // تحويل البيانات لنصوص مفهومة للـ AI ليعرف سياق الحساب بالكامل
+        // تحويل البيانات لنصوص
         const flocksText = flocks && flocks.length > 0 ? JSON.stringify(flocks) : "No flocks registered yet.";
         const calcText = calculations && calculations.length > 0 ? JSON.stringify(calculations) : "No recent feeding calculations.";
+        const fodderAltsText = fodderAlts && fodderAlts.length > 0 ? JSON.stringify(fodderAlts) : "No fodder alternatives recorded.";
         const productsText = products && products.length > 0 ? JSON.stringify(products) : "No products available in store.";
         const categoriesText = categories && categories.length > 0 ? JSON.stringify(categories) : "No categories defined.";
         const ordersText = orders && orders.length > 0 ? JSON.stringify(orders) : "No orders placed yet.";
@@ -437,25 +439,26 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 1. You MUST always address the user by their real name: "${userName}" in a natural and friendly way.
 2. AUTOMATIC LANGUAGE SWITCH: Seamlessly detect and reply in the language the user uses.
    - If they talk in ARABIC: Reply in warm, professional Egyptian Arabic (e.g., "يا غالي", "يا هندسة", "تحت أمرك يا ${userName}").
-   - If they talk in ENGLISH: Reply in clear, professional, and friendly English. Never mix them randomly.
+   - If they talk in ENGLISH: Reply in clear, professional, and friendly English. Never mix them.
 
 📊 FULL APPLICATION LIVE CONTEXT DATA:
 - User Profile: Name is "${userName}", Database ID: ${userId}
 - User's Flocks Data: ${flocksText}
 - User's Feeding Calculations: ${calcText}
-- User's Orders History: ${ordersText}
+- Available Fodder Alternatives: ${fodderAltsText}
 - Available Store Products: ${productsText}
 - Product Categories: ${categoriesText}
+- User's Orders History: ${ordersText}
 
 💡 CORE CAPABILITIES:
-- Answer any question about their account, orders, or feeding ratios using the data above.
-- Recommend alternative feeds from the "Store Products" based on the animals they have in their "Flocks".
+- Act as an expert in animal feeding. If they ask about feed, use "Feeding Calculations" and suggest cheaper/better options from "Fodder Alternatives".
+- Recommend Store Products based on the animals they have in their Flocks.
+- Answer any question about their past orders.
 - Image/Vision Rules:
-  * If the image has NO farm animals/birds/crops, kindly and humorously remind them you focus on farming.
-  * If it's an animal from their own "Flocks", give a highly detailed clinical guide matching their feed calculation ratios.
-  * If it's a general animal, summarize its facts briefly.`;
+  * If the image has NO farm animals/birds/crops, humorously remind them you focus on farming.
+  * If it's an animal from their "Flocks", give a highly detailed clinical and feeding guide.`;
 
-        // 🛑 سحب سجل الرسائل السابقة للذاكرة المستمرة
+        // 🛑 سحب سجل الرسائل السابقة
         const { data: history } = await supabase.from('chat_messages')
             .select('sender, content')
             .eq('user_id', userId)
@@ -476,13 +479,12 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             });
         }
 
-// ⚡️ التحديد الديناميكي لنوع الموديل ومحتوى الرسالة ⚡️
+        // ⚡️ التحديد الديناميكي لموديل الصور الجديد (Llama 4 Scout) ⚡️
         let modelToUse = "llama-3.3-70b-versatile"; 
         let currentUserContent = userText;
 
         if (imageBase64) {
-            // 🌟 التعديل هنا: الاسم الأساسي القياسي للموديل بدون أي إضافات
-            modelToUse = "llama-3.2-11b-vision"; 
+            modelToUse = "meta-llama/llama-4-scout-17b-16e-instruct"; // الموديل الجديد المعتمد من Groq للصور
             currentUserContent = [
                 { type: "text", text: userText },
                 { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
@@ -491,7 +493,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 
         messagesForGroq.push({ role: "user", content: currentUserContent });
 
-        // 🚀 إرسال الطلب الديناميكي لـ Groq
+        // 🚀 إرسال الطلب لـ Groq
         const groqApiKey = process.env.GROQ_API_KEY; 
         const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
@@ -500,8 +502,8 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: modelToUse, // متغير ديناميكي وليس ثابت
-                messages: messagesForGroq, // مصفوفة ديناميكية بالكامل
+                model: modelToUse, 
+                messages: messagesForGroq, 
                 temperature: 0.7
             })
         });
@@ -515,7 +517,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 
         const aiReply = data.choices[0].message.content;
 
-        // حفظ الرسالة النصية في سجل المحادثات
+        // حفظ الرسالة في الداتا بيز
         await supabase.from('chat_messages').insert([
             { user_id: userId, sender: 'user', content: imageBase64 ? `[📸 Image] ${userText}` : userText },
             { user_id: userId, sender: 'ai', content: aiReply }
