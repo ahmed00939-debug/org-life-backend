@@ -130,6 +130,33 @@ app.post('/api/update-name', async (req, res) => {
         res.status(500).json({ error: "حدث خطأ أثناء التحديث", details: err.message });
     }
 });
+
+// ==========================================
+// 🔔 مسار جلب الإشعارات الخاصة بالمستخدم
+// ==========================================
+app.get('/api/notifications/:user_id', async (req, res) => {
+    try {
+        const { user_id } = req.params;
+
+        if (!user_id) {
+            return res.status(400).json({ error: "معرف المستخدم مطلوب" });
+        }
+
+        // جلب الإشعارات وترتيبها من الأحدث للأقدم
+        const { data, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', user_id)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        res.status(200).json(data);
+    } catch (err) {
+        console.error("Fetch Notifications Error:", err.message);
+        res.status(500).json({ error: "حدث خطأ أثناء جلب الإشعارات" });
+    }
+});
 // ==========================================
 // 🔑 مسارات استعادة كلمة المرور (Reset Password)
 // ==========================================
