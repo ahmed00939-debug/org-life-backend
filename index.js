@@ -104,7 +104,6 @@ app.post('/api/login', async (req, res) => {
     } catch (err) { res.status(500).json({ error: "خطأ في السيرفر" }); }
 });
 
-
 // ==========================================
 // ✏️ مسار تحديث اسم المستخدم
 // ==========================================
@@ -117,13 +116,11 @@ app.post('/api/update-name', async (req, res) => {
             return res.status(400).json({ error: "الرجاء إرسال المعرف والاسم الجديد" });
         }
 
-        // تحديث الاسم في Supabase 
-        // ⚠️ تأكد إن اسم جدول المستخدمين عندك هو 'users'
-        // ⚠️ تأكد إن اسم عمود الاسم هو 'user_fullname' زي ما استخدمته في الـ SignUp
+        // تحديث الاسم في Supabase بناءً على الـ schema بتاعتك
         const { data, error } = await supabase
             .from('users') 
             .update({ user_fullname: new_name }) 
-            .eq('id', user_id); // لو اسم عمود الـ ID عندك مختلف خليه مثلا 'user_id'
+            .eq('user_id', user_id); // هنا استخدمنا user_id بدل id
 
         if (error) throw error;
 
