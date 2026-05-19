@@ -104,6 +104,35 @@ app.post('/api/login', async (req, res) => {
     } catch (err) { res.status(500).json({ error: "خطأ في السيرفر" }); }
 });
 
+
+// ==========================================
+// ✏️ مسار تحديث اسم المستخدم
+// ==========================================
+app.post('/api/update-name', async (req, res) => {
+    try {
+        const { user_id, new_name } = req.body;
+
+        // التحقق من وصول البيانات
+        if (!user_id || !new_name) {
+            return res.status(400).json({ error: "الرجاء إرسال المعرف والاسم الجديد" });
+        }
+
+        // تحديث الاسم في Supabase 
+        // ⚠️ تأكد إن اسم جدول المستخدمين عندك هو 'users'
+        // ⚠️ تأكد إن اسم عمود الاسم هو 'user_fullname' زي ما استخدمته في الـ SignUp
+        const { data, error } = await supabase
+            .from('users') 
+            .update({ user_fullname: new_name }) 
+            .eq('id', user_id); // لو اسم عمود الـ ID عندك مختلف خليه مثلا 'user_id'
+
+        if (error) throw error;
+
+        res.status(200).json({ message: "تم تحديث الاسم بنجاح ✅", data });
+    } catch (err) {
+        console.error("Update Name Error:", err.message);
+        res.status(500).json({ error: "حدث خطأ أثناء التحديث", details: err.message });
+    }
+});
 // ==========================================
 // 🔑 مسارات استعادة كلمة المرور (Reset Password)
 // ==========================================
