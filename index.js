@@ -111,16 +111,14 @@ app.post('/api/update-name', async (req, res) => {
     try {
         const { user_id, new_name } = req.body;
 
-        // التحقق من وصول البيانات
         if (!user_id || !new_name) {
             return res.status(400).json({ error: "الرجاء إرسال المعرف والاسم الجديد" });
         }
 
-        // تحديث الاسم في Supabase بناءً على الـ schema بتاعتك
         const { data, error } = await supabase
             .from('users') 
             .update({ user_fullname: new_name }) 
-            .eq('user_id', user_id); // هنا استخدمنا user_id بدل id
+            .eq('user_id', user_id);
 
         if (error) throw error;
 
@@ -132,21 +130,18 @@ app.post('/api/update-name', async (req, res) => {
 });
 
 // ==========================================
-// 🔔 مسار جلب الإشعارات الخاصة بالمستخدم
+// 🔔 مسار جلب الإشعارات (تعديل أمني مهم 🛡️)
 // ==========================================
-app.get('/api/notifications/:user_id', async (req, res) => {
+app.get('/api/notifications', authenticateToken, async (req, res) => {
     try {
-        const { user_id } = req.params;
-
-        if (!user_id) {
-            return res.status(400).json({ error: "معرف المستخدم مطلوب" });
-        }
+        // سحب الـ userId بأمان من التوكن لمنع التجسس
+        const userId = req.user.userId;
 
         // جلب الإشعارات وترتيبها من الأحدث للأقدم
         const { data, error } = await supabase
             .from('notifications')
             .select('*')
-            .eq('user_id', user_id)
+            .eq('user_id', userId)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -157,10 +152,12 @@ app.get('/api/notifications/:user_id', async (req, res) => {
         res.status(500).json({ error: "حدث خطأ أثناء جلب الإشعارات" });
     }
 });
+
 // ==========================================
 // 🔑 مسارات استعادة كلمة المرور (Reset Password)
 // ==========================================
-// 1. طلب كود الاستعادة
+
+// 1. طلب كود الاستعادة (✨ تم التعديل لإرجاع الكود للتجربة ✨)
 app.post('/api/forgot-password', async (req, res) => {
     try {
         const { user_email } = req.body;
@@ -188,7 +185,11 @@ app.post('/api/forgot-password', async (req, res) => {
 
         if (updateError) throw updateError;
 
-        res.status(200).json({ message: "تم طلب الاستعادة بنجاح" });
+        // 🌟 التعديل هنا: بنرجع الـ otp في الـ response عشان تعرف تجربه وتكتبه في فلاتر
+        res.status(200).json({ 
+            message: "تم طلب الاستعادة بنجاح، اكتب الكود المرفق في التطبيق",
+            otp: otp 
+        });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "حدث خطأ أثناء طلب الاستعادة" });
@@ -416,7 +417,7 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// 🧠 7. مساعد الذكاء الاصطناعي الشامل (مربوط بكل البيانات ومحلل للصور)
+// 🧠 7. مساعد الذكاء الاصطناعي الشامل
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
@@ -425,9 +426,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         
         const userText = (message && message.trim() !== "") ? message : (imageBase64 ? "حلل هذه الصورة بناءً على بياناتي" : "Hello");
 
-        // 🌟 [1] سحب كل بيانات المستخدم والعمليات الحية من الداتا بيز 🌟
         const { data: userProfile } = await supabase.from('users').select('user_fullname').eq('user_id', userId).maybeSingle();
-        // التأكد من جلب الاسم الأول فقط أو الاسم بالكامل بشكل صحيح
         const userName = userProfile?.user_fullname ? userProfile.user_fullname.trim() : "يا هندسة";
 
         const { data: flocks } = await supabase.from('flocks').select('flock_animaltype, flock_quantity').eq('user_id', userId);
@@ -435,33 +434,19 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         const { data: fodderStock } = await supabase.from('fodder').select('fodder_type, fodder_amount');
         const { data: recentOrders } = await supabase.from('orders').select('order_total_price, order_status, order_date').eq('user_id', userId).order('order_date', { ascending: false }).limit(2);
 
-        // 🌟 [2] تحويل البيانات لنصوص 🌟
         const flocksText = flocks && flocks.length > 0 ? JSON.stringify(flocks) : "لا توجد قطعان.";
         const calcText = calculations && calculations.length > 0 ? JSON.stringify(calculations) : "لا توجد حسابات.";
         const fodderText = fodderStock && fodderStock.length > 0 ? JSON.stringify(fodderStock) : "لا توجد بيانات مخزون.";
         const ordersText = recentOrders && recentOrders.length > 0 ? JSON.stringify(recentOrders) : "لا توجد طلبات سابقة.";
 
-        // 🌟 [3] الـ System Prompt (عقل الـ AI المربوط بالبيانات) 🌟
         const systemInstruction = `You are "Org-Life AI Assistant", an expert agricultural and animal feeding advisor.
-
-🎯 CRITICAL LANGUAGE & NAME RULES (MUST FOLLOW):
-1. User's EXACT Name: "${userName}". You MUST ONLY address the user by this exact name or the phrase "يا هندسة". DO NOT invent, guess, or use any other names.
-2. If the user speaks Arabic, reply STRICTLY in 100% Egyptian Arabic (العامية المصرية).
-3. PROHIBITION: NEVER use Chinese, Japanese, or any other unrelated characters. No weird symbols. Only Arabic or English letters.
-
+🎯 CRITICAL LANGUAGE & NAME RULES:
+1. User's EXACT Name: "${userName}". You MUST ONLY address the user by this exact name or "يا هندسة".
+2. Reply STRICTLY in 100% Egyptian Arabic (العامية المصرية).
+3. PROHIBITION: NEVER use Chinese or Japanese characters.
 📊 REAL-TIME USER DATA:
-- User Name: ${userName}
-- User's Animals/Flocks: ${flocksText}
-- User's Recent Feed Calculations: ${calcText}
-- User's Recent Orders: ${ordersText}
-- Current Fodder Inventory: ${fodderText}
+- User Name: ${userName} - Flocks: ${flocksText} - Feed Calculations: ${calcText} - Orders: ${ordersText} - Fodder: ${fodderText}`;
 
-💡 HOW TO BEHAVE & IMAGE ANALYSIS:
-1. Context Aware: Check "Flocks" and "Calculations" for feeding questions.
-2. Orders Check: Check "Recent Orders" for purchase questions.
-3. Image Analysis: Connect any uploaded image (animals/crops/feed) directly to the user's "Flocks" or "Fodder Inventory" context.`;
-
-        // 🌟 [4] سحب سجل المحادثة 🌟
         let messagesForGroq = [ { role: "system", content: systemInstruction } ];
         try {
             const { data: history } = await supabase.from('chat_messages').select('sender, content').eq('user_id', userId).order('created_at', { ascending: false }).limit(6);
@@ -474,7 +459,6 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             }
         } catch (e) { console.log("Chat history skip"); }
 
-        // 🌟 [5] تحديد الموديل وإرسال الطلب لـ Groq 🌟
         let modelToUse = "llama-3.3-70b-versatile"; 
         let currentUserContent = userText;
 
@@ -498,7 +482,6 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
             body: JSON.stringify({
                 model: modelToUse, 
                 messages: messagesForGroq, 
-                // ✨ التحديث هنا: تقليل الإبداع لمنع الهلوسة والكلمات الصيني ✨
                 temperature: 0.3, 
                 top_p: 0.9,
                 max_tokens: 1024
@@ -506,14 +489,10 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         });
 
         const data = await response.json();
-
-        if (!response.ok || data.error) {
-            throw new Error(`Groq HTTP Error: ${data.error ? data.error.message : response.status}`);
-        }
+        if (!response.ok || data.error) throw new Error(`Groq Error: ${data.error ? data.error.message : response.status}`);
 
         const aiReply = data.choices[0].message.content;
 
-        // حفظ الرسالة
         try {
             await supabase.from('chat_messages').insert([
                 { user_id: userId, sender: 'user', content: imageBase64 ? `[📸 صورة مرفقة] ${userText}` : userText },
@@ -528,5 +507,12 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         return res.status(500).json({ reply: `حدث خطأ: ${err.message}` });
     }
 });
+
+// 🌟 التعديل هنا: تشغيل الـ Server محلياً عند كتابة node index.js للتجربة المحلية
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(port, () => {
+        console.log(`🚀 السيرفر شغال محلياً على بورت http://localhost:${port}`);
+    });
+}
 
 module.exports = app;
