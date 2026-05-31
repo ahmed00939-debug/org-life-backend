@@ -18,16 +18,16 @@ const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==========================================
-// 🛡️ Middleware: حارس الأمن (للتأكد من تسجيل الدخول)
+// 🛡️ Middleware: حارس الأمن 
 // ==========================================
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
-    if (!token) return res.status(401).json({ error: "غير مصرح لك بالدخول، برجاء تسجيل الدخول أولاً." });
+    if (!token) return res.status(401).json({ error: "unauthorized" }); // ✨ تعديل
 
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ error: "التوكن غير صالح أو انتهت صلاحيته." });
+        if (err) return res.status(403).json({ error: "invalid_token" }); // ✨ تعديل
         req.user = user; 
         next();
     });
@@ -43,38 +43,27 @@ app.post('/api/register', async (req, res) => {
         const { user_fullname, user_email, password, user_phone_number } = req.body;
         
         if (!user_fullname || !user_email || !password || !user_phone_number) {
-            return res.status(400).json({ error: "الاسم والإيميل والباسورد ورقم التليفون مطلوبين" });
+            return res.status(400).json({ error: "missing_fields" }); // ✨ تعديل
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const { data, error } = await supabase
             .from('users')
-            .insert([{ 
-                user_fullname, 
-                user_email, 
-                user_password: hashedPassword, 
-                user_phone_number
-            }]) 
+            .insert([{ user_fullname, user_email, user_password: hashedPassword, user_phone_number }]) 
             .select();
 
         if (error) {
-            if (error.code === '23505') return res.status(400).json({ error: "الإيميل مسجل مسبقاً" });
+            if (error.code === '23505') return res.status(400).json({ error: "email_exists" }); // ✨ تعديل
             throw error;
         }
 
         res.status(201).json({ 
-            message: "تم التسجيل بنجاح ✅", 
-            user: { 
-                id: data[0].user_id, 
-                name: data[0].user_fullname, 
-                email: data[0].user_email,
-                phone: data[0].user_phone_number
-            } 
+            message: "register_success", // ✨ تعديل
+            user: { id: data[0].user_id, name: data[0].user_fullname, email: data[0].user_email, phone: data[0].user_phone_number } 
         });
     } catch (err) { 
-        console.error(err);
-        res.status(500).json({ error: "خطأ في السيرفر" }); 
+        res.status(500).json({ error: "server_error" }); 
     }
 });
 
@@ -84,26 +73,17 @@ app.post('/api/login', async (req, res) => {
         const { user_email, password } = req.body;
         const { data: users, error } = await supabase.from('users').select('*').eq('user_email', user_email);
 
-        if (error || !users.length) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
+        if (error || !users.length) return res.status(401).json({ error: "invalid_credentials" }); // ✨ تعديل
 
         const user = users[0];
         const isMatch = await bcrypt.compare(password, user.user_password);
-        if (!isMatch) return res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
+        if (!isMatch) return res.status(401).json({ error: "invalid_credentials" }); // ✨ تعديل
 
         const token = jwt.sign({ userId: user.user_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-        res.json({ 
-            token, 
-            user: { 
-                id: user.user_id, 
-                name: user.user_fullname, 
-                email: user.user_email,
-                phone: user.user_phone_number
-            } 
-        });
-    } catch (err) { res.status(500).json({ error: "خطأ في السيرفر" }); }
+        res.json({ token, user: { id: user.user_id, name: user.user_fullname, email: user.user_email, phone: user.user_phone_number } });
+    } catch (err) { res.status(500).json({ error: "server_error" }); }
 });
-
 // ==========================================
 // ✏️ مسار تحديث اسم المستخدم
 // ==========================================
