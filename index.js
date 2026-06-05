@@ -340,23 +340,26 @@ app.get('/api/my-orders', authenticateToken, async (req, res) => {
 // ==========================================
 app.post('/api/calculations', authenticateToken, async (req, res) => {
     try {
-        const { corn_amount, wheat_amount, soybean_amount, feeding_frequency } = req.body;
+        // 1. استلام البيانات الجديدة اللي الفلاتر بيبعتها
+        const { total_feed, animal_count, feeding_frequency } = req.body;
+        
         const { data, error } = await supabase
             .from('feeding_calculations')
             .insert([{ 
                 user_id: req.user.userId, 
-                corn_amount: corn_amount || 0, 
-                wheat_amount: wheat_amount || 0, 
-                soybean_amount: soybean_amount || 0,
+                total_feed_amount: total_feed || 0,     // 🌟 العمود الجديد لإجمالي العلف
+                animal_count: animal_count || 0,        // 🌟 العمود الجديد لعدد الحيوانات
                 feeding_frequency: feeding_frequency || 1
             }])
             .select();
 
         if (error) throw error;
-        res.status(201).json({ message: "تم حفظ العملية بنجاح ✅", calculation: data[0] });
+        
+        // 2. استخدام keys للترجمة بدل العربي
+        res.status(201).json({ message: "calc_saved", calculation: data[0] }); 
     } catch (err) { 
         console.error("Save Calculation Error:", err);
-        res.status(500).json({ error: "خطأ في حفظ العملية الحسابية" }); 
+        res.status(500).json({ error: "server_error" }); // ✨ تعديل للترجمة
     }
 });
 
@@ -372,7 +375,7 @@ app.get('/api/calculations', authenticateToken, async (req, res) => {
         res.status(200).json(data);
     } catch (err) { 
         console.error("Fetch Calculations Error:", err);
-        res.status(500).json({ error: "خطأ في جلب سجل العمليات" }); 
+        res.status(500).json({ error: "server_error" }); // ✨ تعديل للترجمة
     }
 });
 
@@ -410,8 +413,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         const userName = userProfile?.user_fullname ? userProfile.user_fullname.trim() : "يا هندسة";
 
         const { data: flocks } = await supabase.from('flocks').select('flock_animaltype, flock_quantity').eq('user_id', userId);
-        const { data: calculations } = await supabase.from('feeding_calculations').select('corn_amount, wheat_amount, soybean_amount, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(3);
-        const { data: fodderStock } = await supabase.from('fodder').select('fodder_type, fodder_amount');
+        const { data: calculations } = await supabase.from('feeding_calculations').select('total_feed_amount, animal_count, feeding_frequency, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(3);        const { data: fodderStock } = await supabase.from('fodder').select('fodder_type, fodder_amount');
         const { data: recentOrders } = await supabase.from('orders').select('order_total_price, order_status, order_date').eq('user_id', userId).order('order_date', { ascending: false }).limit(2);
 
         const flocksText = flocks && flocks.length > 0 ? JSON.stringify(flocks) : "لا توجد قطعان.";
