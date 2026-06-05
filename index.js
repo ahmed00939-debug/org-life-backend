@@ -17,6 +17,10 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+app.get('/', (req, res) => {
+    res.status(200).send('🚀 Org-Life API is Running Successfully!');
+});
+
 // ==========================================
 // 🛡️ Middleware: حارس الأمن 
 // ==========================================
@@ -24,10 +28,10 @@ const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
-    if (!token) return res.status(401).json({ error: "unauthorized" }); // ✨ تعديل
+    if (!token) return res.status(401).json({ error: "unauthorized" }); 
 
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ error: "invalid_token" }); // ✨ تعديل
+        if (err) return res.status(403).json({ error: "invalid_token" }); 
         req.user = user; 
         next();
     });
@@ -43,7 +47,7 @@ app.post('/api/register', async (req, res) => {
         const { user_fullname, user_email, password, user_phone_number } = req.body;
         
         if (!user_fullname || !user_email || !password || !user_phone_number) {
-            return res.status(400).json({ error: "missing_fields" }); // ✨ تعديل
+            return res.status(400).json({ error: "missing_fields" }); 
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -54,12 +58,12 @@ app.post('/api/register', async (req, res) => {
             .select();
 
         if (error) {
-            if (error.code === '23505') return res.status(400).json({ error: "email_exists" }); // ✨ تعديل
+            if (error.code === '23505') return res.status(400).json({ error: "email_exists" }); 
             throw error;
         }
 
         res.status(201).json({ 
-            message: "register_success", // ✨ تعديل
+            message: "register_success", 
             user: { id: data[0].user_id, name: data[0].user_fullname, email: data[0].user_email, phone: data[0].user_phone_number } 
         });
     } catch (err) { 
@@ -73,32 +77,36 @@ app.post('/api/login', async (req, res) => {
         const { user_email, password } = req.body;
         const { data: users, error } = await supabase.from('users').select('*').eq('user_email', user_email);
 
-        if (error || !users.length) return res.status(401).json({ error: "invalid_credentials" }); // ✨ تعديل
+        if (error || !users.length) return res.status(401).json({ error: "invalid_credentials" }); 
 
         const user = users[0];
         const isMatch = await bcrypt.compare(password, user.user_password);
-        if (!isMatch) return res.status(401).json({ error: "invalid_credentials" }); // ✨ تعديل
+        if (!isMatch) return res.status(401).json({ error: "invalid_credentials" }); 
 
         const token = jwt.sign({ userId: user.user_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
         res.json({ token, user: { id: user.user_id, name: user.user_fullname, email: user.user_email, phone: user.user_phone_number } });
     } catch (err) { res.status(500).json({ error: "server_error" }); }
 });
-// ==========================================
-// ✏️ مسار تحديث اسم المستخدم
-// ==========================================
-app.post('/api/update-name', async (req, res) => {
-    try {
-        const { user_id, new_name } = req.body;
 
-        if (!user_id || !new_name) {
-            return res.status(400).json({ error: "الرجاء إرسال المعرف والاسم الجديد" });
+// ==========================================
+// ✏️ مسار تحديث اسم المستخدم (تم تأمينه 🛡️)
+// ==========================================
+app.post('/api/update-name', authenticateToken, async (req, res) => {
+    try {
+        const { new_name } = req.body;
+        const userId = req.user.userId; 
+
+        if (!new_name) {
+            return res.status(400).json({ error: "الرجاء إرسال الاسم الجديد" });
         }
 
+        // ✨ تعديل: أضفنا دالة .select() في النهاية لضمان رجوع البيانات المحدثة في الـ data ومتطلعش null
         const { data, error } = await supabase
             .from('users') 
             .update({ user_fullname: new_name }) 
-            .eq('user_id', user_id);
+            .eq('user_id', userId)
+            .select();
 
         if (error) throw error;
 
@@ -110,34 +118,10 @@ app.post('/api/update-name', async (req, res) => {
 });
 
 // ==========================================
-// 🔔 مسار جلب الإشعارات (تعديل أمني مهم 🛡️)
-// ==========================================
-app.get('/api/notifications', authenticateToken, async (req, res) => {
-    try {
-        // سحب الـ userId بأمان من التوكن لمنع التجسس
-        const userId = req.user.userId;
-
-        // جلب الإشعارات وترتيبها من الأحدث للأقدم
-        const { data, error } = await supabase
-            .from('notifications')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-
-        res.status(200).json(data);
-    } catch (err) {
-        console.error("Fetch Notifications Error:", err.message);
-        res.status(500).json({ error: "حدث خطأ أثناء جلب الإشعارات" });
-    }
-});
-
-// ==========================================
 // 🔑 مسارات استعادة كلمة المرور (Reset Password)
 // ==========================================
 
-// 1. طلب كود الاستعادة (✨ تم التعديل لإرجاع الكود للتجربة ✨)
+// 1. طلب كود الاستعادة
 app.post('/api/forgot-password', async (req, res) => {
     try {
         const { user_email } = req.body;
@@ -165,7 +149,6 @@ app.post('/api/forgot-password', async (req, res) => {
 
         if (updateError) throw updateError;
 
-        // 🌟 التعديل هنا: بنرجع الـ otp في الـ response عشان تعرف تجربه وتكتبه في فلاتر
         res.status(200).json({ 
             message: "تم طلب الاستعادة بنجاح، اكتب الكود المرفق في التطبيق",
             otp: otp 
@@ -340,42 +323,25 @@ app.get('/api/my-orders', authenticateToken, async (req, res) => {
 // ==========================================
 app.post('/api/calculations', authenticateToken, async (req, res) => {
     try {
-        // 1. استلام البيانات الجديدة اللي الفلاتر بيبعتها
-        const { total_feed, animal_count, feeding_frequency } = req.body;
+        const { animal_type, animal_count, daily_savings, standard_feed, alfalfa_amount } = req.body;
         
         const { data, error } = await supabase
             .from('feeding_calculations')
             .insert([{ 
                 user_id: req.user.userId, 
-                total_feed_amount: total_feed || 0,     // 🌟 العمود الجديد لإجمالي العلف
-                animal_count: animal_count || 0,        // 🌟 العمود الجديد لعدد الحيوانات
-                feeding_frequency: feeding_frequency || 1
+                animal_type: animal_type || 'laying_hens',
+                animal_count: animal_count || 0,
+                daily_savings_egp: daily_savings || 0,
+                standard_feed_kg: standard_feed || 0,
+                alternative_alfalfa_kg: alfalfa_amount || 0
             }])
             .select();
 
         if (error) throw error;
-        
-        // 2. استخدام keys للترجمة بدل العربي
         res.status(201).json({ message: "calc_saved", calculation: data[0] }); 
     } catch (err) { 
         console.error("Save Calculation Error:", err);
-        res.status(500).json({ error: "server_error" }); // ✨ تعديل للترجمة
-    }
-});
-
-app.get('/api/calculations', authenticateToken, async (req, res) => {
-    try {
-        const { data, error } = await supabase
-            .from('feeding_calculations')
-            .select('*')
-            .eq('user_id', req.user.userId)
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-        res.status(200).json(data);
-    } catch (err) { 
-        console.error("Fetch Calculations Error:", err);
-        res.status(500).json({ error: "server_error" }); // ✨ تعديل للترجمة
+        res.status(500).json({ error: "server_error" }); 
     }
 });
 
@@ -413,12 +379,20 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         const userName = userProfile?.user_fullname ? userProfile.user_fullname.trim() : "يا هندسة";
 
         const { data: flocks } = await supabase.from('flocks').select('flock_animaltype, flock_quantity').eq('user_id', userId);
-        const { data: calculations } = await supabase.from('feeding_calculations').select('total_feed_amount, animal_count, feeding_frequency, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(3);        const { data: fodderStock } = await supabase.from('fodder').select('fodder_type, fodder_amount');
-        const { data: recentOrders } = await supabase.from('orders').select('order_total_price, order_status, order_date').eq('user_id', userId).order('order_date', { ascending: false }).limit(2);
+        const { data: calculations } = await supabase.from('feeding_calculations')
+            .select('animal_type, animal_count, daily_savings_egp, standard_feed_kg, alternative_alfalfa_kg, created_at')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(3);        
+
+        const { data: recentOrders } = await supabase.from('orders')
+            .select('order_total_price, order_status, order_date')
+            .eq('user_id', userId)
+            .order('order_date', { ascending: false })
+            .limit(2);
 
         const flocksText = flocks && flocks.length > 0 ? JSON.stringify(flocks) : "لا توجد قطعان.";
         const calcText = calculations && calculations.length > 0 ? JSON.stringify(calculations) : "لا توجد حسابات.";
-        const fodderText = fodderStock && fodderStock.length > 0 ? JSON.stringify(fodderStock) : "لا توجد بيانات مخزون.";
         const ordersText = recentOrders && recentOrders.length > 0 ? JSON.stringify(recentOrders) : "لا توجد طلبات سابقة.";
 
         const systemInstruction = `You are "Org-Life AI Assistant", an expert agricultural and animal feeding advisor.
@@ -427,7 +401,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 2. Reply STRICTLY in 100% Egyptian Arabic (العامية المصرية).
 3. PROHIBITION: NEVER use Chinese or Japanese characters.
 📊 REAL-TIME USER DATA:
-- User Name: ${userName} - Flocks: ${flocksText} - Feed Calculations: ${calcText} - Orders: ${ordersText} - Fodder: ${fodderText}`;
+- User Name: ${userName} - Flocks: ${flocksText} - Feed Calculations: ${calcText} - Orders: ${ordersText}`;
 
         let messagesForGroq = [ { role: "system", content: systemInstruction } ];
         try {
@@ -442,16 +416,15 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
         } catch (e) { console.log("Chat history skip"); }
 
         let modelToUse = "llama-3.3-70b-versatile"; 
-        let currentUserContent = userText;
-
+        let currentUserContent = userText;  
+        
         if (imageBase64) {
-            modelToUse = "meta-llama/llama-4-scout-17b-16e-instruct"; 
+            modelToUse = "llama-3.2-11b-vision-preview"; 
             currentUserContent = [
                 { type: "text", text: userText },
                 { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
             ];
         }
-
         messagesForGroq.push({ role: "user", content: currentUserContent });
 
         const groqApiKey = process.env.GROQ_API_KEY; 
@@ -490,11 +463,9 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     }
 });
 
-// 🌟 التعديل هنا: تشغيل الـ Server محلياً عند كتابة node index.js للتجربة المحلية
-if (process.env.NODE_ENV !== 'production') {
-    app.listen(port, () => {
-        console.log(`🚀 السيرفر شغال محلياً على بورت http://localhost:${port}`);
-    });
-}
+// ✨ تعديل: السيرفر الآن يعمل بشكل سليم دائماً (محلياً أو عند الرفع لـ Production على Render/Heroku)
+app.listen(port, () => {
+    console.log(`🚀 السيرفر شغال بنجاح على بورت: ${port}`);
+});
 
 module.exports = app;
