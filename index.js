@@ -101,7 +101,6 @@ app.post('/api/update-name', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: "الرجاء إرسال الاسم الجديد" });
         }
 
-        // ✨ تعديل: أضفنا دالة .select() في النهاية لضمان رجوع البيانات المحدثة في الـ data ومتطلعش null
         const { data, error } = await supabase
             .from('users') 
             .update({ user_fullname: new_name }) 
@@ -121,7 +120,6 @@ app.post('/api/update-name', authenticateToken, async (req, res) => {
 // 🔑 مسارات استعادة كلمة المرور (Reset Password)
 // ==========================================
 
-// 1. طلب كود الاستعادة
 app.post('/api/forgot-password', async (req, res) => {
     try {
         const { user_email } = req.body;
@@ -159,7 +157,6 @@ app.post('/api/forgot-password', async (req, res) => {
     }
 });
 
-// 2. تعيين كلمة المرور الجديدة
 app.post('/api/reset-password', async (req, res) => {
     try {
         const { user_email, otp, new_password } = req.body;
@@ -400,6 +397,15 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 1. User's EXACT Name: "${userName}". You MUST ONLY address the user by this exact name or "يا هندسة".
 2. Reply STRICTLY in 100% Egyptian Arabic (العامية المصرية).
 3. PROHIBITION: NEVER use Chinese or Japanese characters.
+
+💰 PRICING & CALCULATION RULES (STRICTLY ADHERE TO THESE):
+- سعر الكيلو من (البرسيم الحجازي + بروبايوتيك) ثابت = 12.5 جنيه لجميع الحيوانات.
+- الدواجن البياضة: استهلاك 100 جرام/يوم للفرخة. (80% علف أساسي بسعر 25 جنيه/كجم، و 20% برسيم).
+- البط البياض: استهلاك 250 جرام/يوم للبطة. (60% علف أساسي بسعر 20 جنيه/كجم، و 40% برسيم).
+- الأغنام الولادة: استهلاك 1 كيلو/يوم للنعجة. (90% علف أساسي بسعر 18 جنيه/كجم، و 10% برسيم).
+- الأسماك: استهلاك 6 جرام/يوم للسمكة. (60% علف أساسي بسعر 30 جنيه/كجم، و 40% برسيم).
+(استخدم هذه الأرقام الدقيقة دائماً لحساب التكلفة والتوفير إذا طلب منك المستخدم).
+
 📊 REAL-TIME USER DATA:
 - User Name: ${userName} - Flocks: ${flocksText} - Feed Calculations: ${calcText} - Orders: ${ordersText}`;
 
@@ -463,7 +469,7 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     }
 });
 
-// ✨ تعديل: السيرفر الآن يعمل بشكل سليم دائماً (محلياً أو عند الرفع لـ Production على Render/Heroku)
+// ✨ السيرفر الآن يعمل بشكل سليم دائماً (محلياً أو عند الرفع لـ Production على Render/Heroku)
 app.listen(port, () => {
     console.log(`🚀 السيرفر شغال بنجاح على بورت: ${port}`);
 });
