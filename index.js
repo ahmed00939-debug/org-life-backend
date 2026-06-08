@@ -342,6 +342,23 @@ app.post('/api/calculations', authenticateToken, async (req, res) => {
     }
 });
 
+// 🌟 [ضيف ده تحتيه فوراً] مسار جلب سجل الحسابات للمستخدم الحالي
+app.get('/api/calculations', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId; // بناخد الـ ID من التوكن المتأمن
+        const { data, error } = await supabase
+            .from('feeding_calculations')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false }); // يShield الجديد فوق
+
+        if (error) throw error;
+        res.status(200).json(data);
+    } catch (err) {
+        console.error("Get Calculations Error:", err);
+        res.status(500).json({ error: "server_error" });
+    }
+});
 // ==========================================
 // 📜 6. مسار جلب سجل المحادثات (للفلاتر)
 // ==========================================
