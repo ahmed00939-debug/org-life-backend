@@ -593,40 +593,5 @@ app.listen(port, () => {
     console.log(`🚀 السيرفر شغال بنجاح على بورت: ${port}`);
 });
 
-// ==========================================
-// ⏱️ 9. نظام المتابعة التلقائي (Cron Job) للمستخدمين الغائبين
-// ==========================================
-const cron = require('node-cron');
 
-// تشغيل الفحص يومياً الساعة 12 ظهراً
-cron.schedule('0 12 * * *', async () => {
-    console.log("🔍 تشغيل فحص المستخدمين الغائبين...");
-    try {
-        // تحديد التاريخ منذ 7 أيام (أو المدة التي تفضلها)
-        const daysAgo = new Date();
-        daysAgo.setDate(daysAgo.getDate() - 7);
-
-        // جلب المستخدمين الذين كان آخر ظهور لهم قبل هذا التاريخ
-        const { data: users, error } = await supabase
-            .from('users')
-            .select('user_id')
-            .lt('last_active_at', daysAgo.toISOString());
-        
-        if (error) throw error;
-        if (!users || users.length === 0) return;
-
-        // إرسال الإشعار لكل مستخدم غائب
-        for (const user of users) {
-            await supabase.from('notifications').insert([{
-                user_id: user.user_id,
-                title: "رسالة من Org-Life 💚",
-                description: "واحشنا فينك من زمان طمنى على القطيع الي عندك ايه اخباره؟ \n\nMiss you man where are and how are your flocks, good?",
-                type: 'system_alert'
-            }]);
-        }
-        console.log(`✅ تم إرسال إشعار العودة إلى ${users.length} مستخدمين.`);
-    } catch (err) {
-        console.error("Cron Job Error:", err);
-    }
-});
 module.exports = app;
