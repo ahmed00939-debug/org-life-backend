@@ -21,6 +21,8 @@ app.get('/', (req, res) => {
     res.status(200).send('🚀 Org-Life API is Running Successfully!');
 });
 
+
+
 // ==========================================
 // 🛡️ Middleware: حارس الأمن 
 // ==========================================
@@ -32,11 +34,20 @@ const authenticateToken = (req, res, next) => {
 
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
         if (err) return res.status(403).json({ error: "invalid_token" }); 
+        
         req.user = user; 
+
+        // 🌟 التعديل هنا: تحديث آخر ظهور للمستخدم في الداتابيز بصمت (بدون ما نعطل الـ Request)
+        supabase
+            .from('users')
+            .update({ last_active_at: new Date().toISOString() })
+            .eq('user_id', user.userId)
+            .then(); 
+            // استخدمنا then() بدل await عشان السيرفر ما يستناش الداتابيز ويكمل شغله بسرعة
+
         next();
     });
 };
-
 // ==========================================
 // 🟢 1. مسارات المستخدمين (Auth)
 // ==========================================
@@ -89,9 +100,7 @@ app.post('/api/login', async (req, res) => {
     } catch (err) { res.status(500).json({ error: "server_error" }); }
 });
 
-// ==========================================
-// ✏️ مسار تحديث اسم المستخدم (تم تأمينه 🛡️)
-// ==========================================
+// مسار تحديث اسم المستخدم
 app.post('/api/update-name', authenticateToken, async (req, res) => {
     try {
         const { new_name } = req.body;
@@ -116,10 +125,7 @@ app.post('/api/update-name', authenticateToken, async (req, res) => {
     }
 });
 
-// ==========================================
-// 🔑 مسارات استعادة كلمة المرور (Reset Password)
-// ==========================================
-
+// مسارات استعادة كلمة المرور (Reset Password)
 app.post('/api/forgot-password', async (req, res) => {
     try {
         const { user_email } = req.body;
@@ -224,9 +230,12 @@ app.get('/api/products', async (req, res) => {
 app.post('/api/flocks', authenticateToken, async (req, res) => {
     const userId = req.user.userId || req.user.id; 
     const { flock_animaltype, flock_quantity, flock_arrivaldate } = req.body;
+    
+    // 🌟 نقرأ اللغة المبعوتة من هيدر التطبيق (لو مش مبعوتة هتبقى عربي تلقائي)
+    const lang = req.headers['accept-language'] || 'ar';
 
     if (!flock_animaltype || !flock_quantity) {
-        return res.status(400).json({ error: "نوع القطيع والكمية مطلوبين" });
+        return res.status(400).json({ error: "missing_fields" });
     }
 
     try {
@@ -241,10 +250,28 @@ app.post('/api/flocks', authenticateToken, async (req, res) => {
             .select();
 
         if (error) throw error;
-        res.status(201).json({ message: "تم إضافة القطيع بنجاح! ✅", flock: data[0] });
+
+        // 🔔 إشعار تلقائي ذكي: يترجم حسب لغة المستخدم
+        try {
+            const notifTitle = lang === 'en' ? "New Flock Added 🐾" : "إضافة قطيع جديد 🐾";
+            const notifDesc = lang === 'en' 
+                ? `A new flock of type (${flock_animaltype}) with ${flock_quantity} heads has been registered successfully.`
+                : `تم تسجيل قطيع جديد بنجاح من النوع (${flock_animaltype}) وبعدد ${flock_quantity} رأس.`;
+
+            await supabase.from('notifications').insert([{
+                user_id: userId,
+                title: notifTitle,
+                description: notifDesc,
+                type: 'flock_info'
+            }]);
+        } catch (notifErr) {
+            console.error("Notification trigger error (Flocks):", notifErr);
+        }
+
+        res.status(201).json({ message: "success", flock: data[0] });
     } catch (err) {
         console.error("Error adding flock:", err);
-        res.status(500).json({ error: "حدث خطأ أثناء حفظ القطيع." });
+        res.status(500).json({ error: "server_error" });
     }
 });
 
@@ -259,10 +286,14 @@ app.get('/api/flocks', authenticateToken, async (req, res) => {
 // ==========================================
 // 🛒 4. مسارات الطلبات - Orders (Protected)
 // ==========================================
+// 🛒 4. مسارات الطلبات - Orders (Protected)
 app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
         const { order_delivery_address, order_total_price, items } = req.body;
         const user_id = req.user.userId;
+        
+        // 🌟 نقرأ اللغة المبعوتة من هيدر التطبيق
+        const lang = req.headers['accept-language'] || 'ar';
 
         const { data: orderData, error: orderError } = await supabase
             .from('orders')
@@ -291,10 +322,27 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
             if (detailsError) throw detailsError;
         }
 
-        res.status(201).json({ message: "تم إنشاء الطلب وتفاصيله بنجاح ✅", order_id: newOrderId });
+        // 🔔 إشعار تلقائي ذكي: يترجم حسب لغة المستخدم (عربي / إنجليزي)
+        try {
+            const notifTitle = lang === 'en' ? "Your order has been placed 🛒" : "تم تسجيل طلبك الجديد 🛒";
+            const notifDesc = lang === 'en'
+                ? `Your order of EGP ${order_total_price} is under review and preparation.`
+                : `طلبك بمبلغ ${order_total_price} جنيه قيد المراجعة والتجهيز الآن.`;
+
+            await supabase.from('notifications').insert([{
+                user_id: user_id,
+                title: notifTitle,
+                description: notifDesc,
+                type: 'orders_status'
+            }]);
+        } catch (notifErr) {
+            console.error("Notification trigger error (Orders):", notifErr);
+        }
+
+        res.status(201).json({ message: "success", order_id: newOrderId });
 
     } catch (err) { 
-        res.status(500).json({ error: "خطأ في إنشاء الطلب", details: err.message }); 
+        res.status(500).json({ error: "server_error", details: err.message }); 
     }
 });
 
@@ -335,6 +383,19 @@ app.post('/api/calculations', authenticateToken, async (req, res) => {
             .select();
 
         if (error) throw error;
+
+        // 🔔 إشعار تلقائي: عند حفظ حسبة توفير جديدة بنجاح
+        try {
+            await supabase.from('notifications').insert([{
+                user_id: req.user.userId,
+                title: "حسبة توفير جديدة 💰",
+                description: `لقد قمت بحساب التوفير لعدد (${animal_count || 0}) وحققت معدل توفير ممتاز يومياً!`,
+                type: 'savings'
+            }]);
+        } catch (notifErr) {
+            console.error("Notification trigger error (Calculations):", notifErr);
+        }
+
         res.status(201).json({ message: "calc_saved", calculation: data[0] }); 
     } catch (err) { 
         console.error("Save Calculation Error:", err);
@@ -342,15 +403,14 @@ app.post('/api/calculations', authenticateToken, async (req, res) => {
     }
 });
 
-// 🌟 [ضيف ده تحتيه فوراً] مسار جلب سجل الحسابات للمستخدم الحالي
 app.get('/api/calculations', authenticateToken, async (req, res) => {
     try {
-        const userId = req.user.userId; // بناخد الـ ID من التوكن المتأمن
+        const userId = req.user.userId; 
         const { data, error } = await supabase
             .from('feeding_calculations')
             .select('*')
             .eq('user_id', userId)
-            .order('created_at', { ascending: false }); // يShield الجديد فوق
+            .order('created_at', { ascending: false }); 
 
         if (error) throw error;
         res.status(200).json(data);
@@ -359,8 +419,51 @@ app.get('/api/calculations', authenticateToken, async (req, res) => {
         res.status(500).json({ error: "server_error" });
     }
 });
+
 // ==========================================
-// 📜 6. مسار جلب سجل المحادثات (للفلاتر)
+// 🔔 6. مسارات الإشعارات - Notifications (Protected) ✨ (جديد ومطوب للفرونت)
+// ==========================================
+
+// جلب الإشعارات الخاصة بالمستخدم الحالي مرتبة من الأحدث للأقدم
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { data, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.status(200).json(data);
+    } catch (err) {
+        console.error("Get Notifications Endpoint Error:", err);
+        res.status(500).json({ error: "server_error" });
+    }
+});
+
+// تحويل الإشعار لحالة "مقروء" عند الضغط عليه في التطبيق
+app.put('/api/notifications/:id/read', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const notifId = req.params.id;
+
+        const { error } = await supabase
+            .from('notifications')
+            .update({ is_read: true })
+            .eq('id', notifId)
+            .eq('user_id', userId);
+
+        if (error) throw error;
+        res.status(200).json({ message: "notification_marked_as_read" });
+    } catch (err) {
+        console.error("Mark Notification Read Endpoint Error:", err);
+        res.status(500).json({ error: "server_error" });
+    }
+});
+
+// ==========================================
+// 📜 7. مسار جلب سجل المحادثات (للفلاتر)
 // ==========================================
 app.get('/api/chat-history', authenticateToken, async (req, res) => {
     try {
@@ -380,7 +483,7 @@ app.get('/api/chat-history', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// 🧠 7. مساعد الذكاء الاصطناعي الشامل
+// 🧠 8. مساعد الذكاء الاصطناعي الشامل
 // ==========================================
 app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     try {
@@ -486,9 +589,44 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
     }
 });
 
-// ✨ السيرفر الآن يعمل بشكل سليم دائماً (محلياً أو عند الرفع لـ Production على Render/Heroku)
 app.listen(port, () => {
     console.log(`🚀 السيرفر شغال بنجاح على بورت: ${port}`);
 });
 
+// ==========================================
+// ⏱️ 9. نظام المتابعة التلقائي (Cron Job) للمستخدمين الغائبين
+// ==========================================
+const cron = require('node-cron');
+
+// تشغيل الفحص يومياً الساعة 12 ظهراً
+cron.schedule('0 12 * * *', async () => {
+    console.log("🔍 تشغيل فحص المستخدمين الغائبين...");
+    try {
+        // تحديد التاريخ منذ 7 أيام (أو المدة التي تفضلها)
+        const daysAgo = new Date();
+        daysAgo.setDate(daysAgo.getDate() - 7);
+
+        // جلب المستخدمين الذين كان آخر ظهور لهم قبل هذا التاريخ
+        const { data: users, error } = await supabase
+            .from('users')
+            .select('user_id')
+            .lt('last_active_at', daysAgo.toISOString());
+        
+        if (error) throw error;
+        if (!users || users.length === 0) return;
+
+        // إرسال الإشعار لكل مستخدم غائب
+        for (const user of users) {
+            await supabase.from('notifications').insert([{
+                user_id: user.user_id,
+                title: "رسالة من Org-Life 💚",
+                description: "واحشنا فينك من زمان طمنى على القطيع الي عندك ايه اخباره؟ \n\nMiss you man where are and how are your flocks, good?",
+                type: 'system_alert'
+            }]);
+        }
+        console.log(`✅ تم إرسال إشعار العودة إلى ${users.length} مستخدمين.`);
+    } catch (err) {
+        console.error("Cron Job Error:", err);
+    }
+});
 module.exports = app;
