@@ -21,8 +21,6 @@ app.get('/', (req, res) => {
     res.status(200).send('🚀 Org-Life API is Running Successfully!');
 });
 
-
-
 // ==========================================
 // 🛡️ Middleware: حارس الأمن 
 // ==========================================
@@ -37,17 +35,18 @@ const authenticateToken = (req, res, next) => {
         
         req.user = user; 
 
-        // 🌟 التعديل هنا: تحديث آخر ظهور للمستخدم في الداتابيز بصمت (بدون ما نعطل الـ Request)
+        // 🌟 التحديث بصمت مع اصطياد الأخطاء عشان السيرفر ميعملش Crash
         supabase
             .from('users')
             .update({ last_active_at: new Date().toISOString() })
             .eq('user_id', user.userId)
-            .then(); 
-            // استخدمنا then() بدل await عشان السيرفر ما يستناش الداتابيز ويكمل شغله بسرعة
+            .then()
+            .catch(e => console.log("Ignore DB update error")); 
 
         next();
     });
 };
+
 // ==========================================
 // 🟢 1. مسارات المستخدمين (Auth)
 // ==========================================
@@ -125,7 +124,7 @@ app.post('/api/update-name', authenticateToken, async (req, res) => {
     }
 });
 
-// مسارات استعادة كلمة المرور (Reset Password)
+// مسارات استعادة كلمة المرور
 app.post('/api/forgot-password', async (req, res) => {
     try {
         const { user_email } = req.body;
@@ -229,10 +228,16 @@ app.get('/api/products', async (req, res) => {
 // ==========================================
 app.post('/api/flocks', authenticateToken, async (req, res) => {
     const userId = req.user.userId || req.user.id; 
-    const { flock_animaltype, flock_quantity, flock_arrivaldate } = req.body;
+    const { flock_animaltype, flock_quantity, flock_arrivaldate, isArabic } = req.body;
     
-    // 🌟 نقرأ اللغة المبعوتة من هيدر التطبيق (لو مش مبعوتة هتبقى عربي تلقائي)
-    const lang = req.headers['accept-language'] || 'ar';
+    // 🌟 لقط اللغة من الفلاتر مباشرة
+    let isEnglish = false;
+    if (isArabic !== undefined) {
+        isEnglish = (isArabic === false || isArabic === 'false');
+    } else {
+        const langHeader = req.headers['accept-language'] || 'ar';
+        isEnglish = langHeader.toLowerCase().includes('en');
+    }
 
     if (!flock_animaltype || !flock_quantity) {
         return res.status(400).json({ error: "missing_fields" });
@@ -251,12 +256,36 @@ app.post('/api/flocks', authenticateToken, async (req, res) => {
 
         if (error) throw error;
 
-        // 🔔 إشعار تلقائي ذكي: يترجم حسب لغة المستخدم
+        // 🧠 نصائح القطعان الذكية تترجم حسب لغة المستخدم
+        let flockTips = "";
+        const typeStr = flock_animaltype.toLowerCase();
+
+        if (typeStr.includes('دواجن') || typeStr.includes('فراخ') || typeStr.includes('chicken') || typeStr.includes('hen')) {
+            flockTips = isEnglish
+                ? "Did you know? Laying hens consume about 100g/day (80% feed, 20% alfalfa)."
+                : "معلومة لك: الدواجن البياضة تستهلك حوالي 100 جرام/يوم (80% علف، 20% برسيم حجازي).";
+        } else if (typeStr.includes('بط') || typeStr.includes('duck')) {
+            flockTips = isEnglish
+                ? "Did you know? Ducks consume about 250g/day (60% feed, 40% alfalfa)."
+                : "معلومة لك: البط يستهلك حوالي 250 جرام/يوم (60% علف، 40% برسيم حجازي).";
+        } else if (typeStr.includes('غنم') || typeStr.includes('اغنام') || typeStr.includes('sheep')) {
+            flockTips = isEnglish
+                ? "Did you know? Breeding sheep consume about 1kg/day (90% feed, 10% alfalfa)."
+                : "معلومة لك: الأغنام الولادة تستهلك حوالي 1 كيلو/يوم (90% علف، 10% برسيم حجازي).";
+        } else if (typeStr.includes('سمك') || typeStr.includes('fish')) {
+            flockTips = isEnglish
+                ? "Did you know? Fish consume about 6g/day (60% feed, 40% alfalfa)."
+                : "معلومة لك: الأسماك تستهلك حوالي 6 جرام/يوم للسمكة (60% علف، 40% برسيم حجازي).";
+        } else {
+            flockTips = isEnglish ? "Take good care of your new flock!" : "اعتنِ جيداً بقطيعك الجديد!";
+        }
+
+        // 🔔 إرسال الإشعار باللغة الصحيحة
         try {
-            const notifTitle = lang === 'en' ? "New Flock Added 🐾" : "إضافة قطيع جديد 🐾";
-            const notifDesc = lang === 'en' 
-                ? `A new flock of type (${flock_animaltype}) with ${flock_quantity} heads has been registered successfully.`
-                : `تم تسجيل قطيع جديد بنجاح من النوع (${flock_animaltype}) وبعدد ${flock_quantity} رأس.`;
+            const notifTitle = isEnglish ? "New Flock Added 🐾" : "إضافة قطيع جديد 🐾";
+            const notifDesc = isEnglish 
+                ? `A new flock of type (${flock_animaltype}) with ${flock_quantity} heads has been registered successfully.\n\n${flockTips}`
+                : `تم تسجيل قطيع جديد بنجاح من النوع (${flock_animaltype}) وبعدد ${flock_quantity} رأس.\n\n${flockTips}`;
 
             await supabase.from('notifications').insert([{
                 user_id: userId,
@@ -286,14 +315,19 @@ app.get('/api/flocks', authenticateToken, async (req, res) => {
 // ==========================================
 // 🛒 4. مسارات الطلبات - Orders (Protected)
 // ==========================================
-// 🛒 4. مسارات الطلبات - Orders (Protected)
 app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
-        const { order_delivery_address, order_total_price, items } = req.body;
+        const { order_delivery_address, order_total_price, items, isArabic } = req.body;
         const user_id = req.user.userId;
         
-        // 🌟 نقرأ اللغة المبعوتة من هيدر التطبيق
-        const lang = req.headers['accept-language'] || 'ar';
+        // 🌟 لقط اللغة من الفلاتر مباشرة
+        let isEnglish = false;
+        if (isArabic !== undefined) {
+            isEnglish = (isArabic === false || isArabic === 'false');
+        } else {
+            const langHeader = req.headers['accept-language'] || 'ar';
+            isEnglish = langHeader.toLowerCase().includes('en');
+        }
 
         const { data: orderData, error: orderError } = await supabase
             .from('orders')
@@ -322,10 +356,10 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
             if (detailsError) throw detailsError;
         }
 
-        // 🔔 إشعار تلقائي ذكي: يترجم حسب لغة المستخدم (عربي / إنجليزي)
+        // 🔔 إشعار الطلبات المترجم
         try {
-            const notifTitle = lang === 'en' ? "Your order has been placed 🛒" : "تم تسجيل طلبك الجديد 🛒";
-            const notifDesc = lang === 'en'
+            const notifTitle = isEnglish ? "Your order has been placed 🛒" : "تم تسجيل طلبك الجديد 🛒";
+            const notifDesc = isEnglish
                 ? `Your order of EGP ${order_total_price} is under review and preparation.`
                 : `طلبك بمبلغ ${order_total_price} جنيه قيد المراجعة والتجهيز الآن.`;
 
@@ -368,8 +402,17 @@ app.get('/api/my-orders', authenticateToken, async (req, res) => {
 // ==========================================
 app.post('/api/calculations', authenticateToken, async (req, res) => {
     try {
-        const { animal_type, animal_count, daily_savings, standard_feed, alfalfa_amount } = req.body;
+        const { animal_type, animal_count, daily_savings, standard_feed, alfalfa_amount, isArabic } = req.body;
         
+        // 🌟 لقط اللغة لحسابات التوفير أيضاً
+        let isEnglish = false;
+        if (isArabic !== undefined) {
+            isEnglish = (isArabic === false || isArabic === 'false');
+        } else {
+            const langHeader = req.headers['accept-language'] || 'ar';
+            isEnglish = langHeader.toLowerCase().includes('en');
+        }
+
         const { data, error } = await supabase
             .from('feeding_calculations')
             .insert([{ 
@@ -384,12 +427,17 @@ app.post('/api/calculations', authenticateToken, async (req, res) => {
 
         if (error) throw error;
 
-        // 🔔 إشعار تلقائي: عند حفظ حسبة توفير جديدة بنجاح
+        // 🔔 إشعار تلقائي باللغتين
         try {
+            const notifTitle = isEnglish ? "New Savings Calculation 💰" : "حسبة توفير جديدة 💰";
+            const notifDesc = isEnglish
+                ? `You have calculated savings for (${animal_count || 0}) heads and achieved an excellent daily savings rate!`
+                : `لقد قمت بحساب التوفير لعدد (${animal_count || 0}) وحققت معدل توفير ممتاز يومياً!`;
+
             await supabase.from('notifications').insert([{
                 user_id: req.user.userId,
-                title: "حسبة توفير جديدة 💰",
-                description: `لقد قمت بحساب التوفير لعدد (${animal_count || 0}) وحققت معدل توفير ممتاز يومياً!`,
+                title: notifTitle,
+                description: notifDesc,
                 type: 'savings'
             }]);
         } catch (notifErr) {
@@ -421,10 +469,8 @@ app.get('/api/calculations', authenticateToken, async (req, res) => {
 });
 
 // ==========================================
-// 🔔 6. مسارات الإشعارات - Notifications (Protected) ✨ (جديد ومطوب للفرونت)
+// 🔔 6. مسارات الإشعارات - Notifications (Protected)
 // ==========================================
-
-// جلب الإشعارات الخاصة بالمستخدم الحالي مرتبة من الأحدث للأقدم
 app.get('/api/notifications', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
@@ -442,7 +488,6 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
     }
 });
 
-// تحويل الإشعار لحالة "مقروء" عند الضغط عليه في التطبيق
 app.put('/api/notifications/:id/read', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
@@ -592,6 +637,5 @@ app.post('/api/ai-chat', authenticateToken, async (req, res) => {
 app.listen(port, () => {
     console.log(`🚀 السيرفر شغال بنجاح على بورت: ${port}`);
 });
-
 
 module.exports = app;
