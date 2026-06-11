@@ -35,7 +35,6 @@ const authenticateToken = (req, res, next) => {
         
         req.user = user; 
 
-        // 🌟 التحديث بصمت مع اصطياد الأخطاء عشان السيرفر ميعملش Crash
         supabase
             .from('users')
             .update({ last_active_at: new Date().toISOString() })
@@ -51,7 +50,6 @@ const authenticateToken = (req, res, next) => {
 // 🟢 1. مسارات المستخدمين (Auth)
 // ==========================================
 
-// التسجيل
 app.post('/api/register', async (req, res) => {
     try {
         const { user_fullname, user_email, password, user_phone_number } = req.body;
@@ -81,7 +79,6 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// تسجيل الدخول
 app.post('/api/login', async (req, res) => {
     try {
         const { user_email, password } = req.body;
@@ -99,7 +96,6 @@ app.post('/api/login', async (req, res) => {
     } catch (err) { res.status(500).json({ error: "server_error" }); }
 });
 
-// مسار تحديث اسم المستخدم
 app.post('/api/update-name', authenticateToken, async (req, res) => {
     try {
         const { new_name } = req.body;
@@ -124,7 +120,6 @@ app.post('/api/update-name', authenticateToken, async (req, res) => {
     }
 });
 
-// مسارات استعادة كلمة المرور
 app.post('/api/forgot-password', async (req, res) => {
     try {
         const { user_email } = req.body;
@@ -228,17 +223,8 @@ app.get('/api/products', async (req, res) => {
 // ==========================================
 app.post('/api/flocks', authenticateToken, async (req, res) => {
     const userId = req.user.userId || req.user.id; 
-    const { flock_animaltype, flock_quantity, flock_arrivaldate, isArabic } = req.body;
+    const { flock_animaltype, flock_quantity, flock_arrivaldate } = req.body;
     
-    // 🌟 لقط اللغة من الفلاتر مباشرة
-    let isEnglish = false;
-    if (isArabic !== undefined) {
-        isEnglish = (isArabic === false || isArabic === 'false');
-    } else {
-        const langHeader = req.headers['accept-language'] || 'ar';
-        isEnglish = langHeader.toLowerCase().includes('en');
-    }
-
     if (!flock_animaltype || !flock_quantity) {
         return res.status(400).json({ error: "missing_fields" });
     }
@@ -256,47 +242,7 @@ app.post('/api/flocks', authenticateToken, async (req, res) => {
 
         if (error) throw error;
 
-        // 🧠 نصائح القطعان الذكية تترجم حسب لغة المستخدم
-        let flockTips = "";
-        const typeStr = flock_animaltype.toLowerCase();
-
-        if (typeStr.includes('دواجن') || typeStr.includes('فراخ') || typeStr.includes('chicken') || typeStr.includes('hen')) {
-            flockTips = isEnglish
-                ? "Did you know? Laying hens consume about 100g/day (80% feed, 20% alfalfa)."
-                : "معلومة لك: الدواجن البياضة تستهلك حوالي 100 جرام/يوم (80% علف، 20% برسيم حجازي).";
-        } else if (typeStr.includes('بط') || typeStr.includes('duck')) {
-            flockTips = isEnglish
-                ? "Did you know? Ducks consume about 250g/day (60% feed, 40% alfalfa)."
-                : "معلومة لك: البط يستهلك حوالي 250 جرام/يوم (60% علف، 40% برسيم حجازي).";
-        } else if (typeStr.includes('غنم') || typeStr.includes('اغنام') || typeStr.includes('sheep')) {
-            flockTips = isEnglish
-                ? "Did you know? Breeding sheep consume about 1kg/day (90% feed, 10% alfalfa)."
-                : "معلومة لك: الأغنام الولادة تستهلك حوالي 1 كيلو/يوم (90% علف، 10% برسيم حجازي).";
-        } else if (typeStr.includes('سمك') || typeStr.includes('fish')) {
-            flockTips = isEnglish
-                ? "Did you know? Fish consume about 6g/day (60% feed, 40% alfalfa)."
-                : "معلومة لك: الأسماك تستهلك حوالي 6 جرام/يوم للسمكة (60% علف، 40% برسيم حجازي).";
-        } else {
-            flockTips = isEnglish ? "Take good care of your new flock!" : "اعتنِ جيداً بقطيعك الجديد!";
-        }
-
-        // 🔔 إرسال الإشعار باللغة الصحيحة
-        try {
-            const notifTitle = isEnglish ? "New Flock Added 🐾" : "إضافة قطيع جديد 🐾";
-            const notifDesc = isEnglish 
-                ? `A new flock of type (${flock_animaltype}) with ${flock_quantity} heads has been registered successfully.\n\n${flockTips}`
-                : `تم تسجيل قطيع جديد بنجاح من النوع (${flock_animaltype}) وبعدد ${flock_quantity} رأس.\n\n${flockTips}`;
-
-            await supabase.from('notifications').insert([{
-                user_id: userId,
-                title: notifTitle,
-                description: notifDesc,
-                type: 'flock_info'
-            }]);
-        } catch (notifErr) {
-            console.error("Notification trigger error (Flocks):", notifErr);
-        }
-
+        // تم مسح الإشعارات التلقائية من هنا ✅
         res.status(201).json({ message: "success", flock: data[0] });
     } catch (err) {
         console.error("Error adding flock:", err);
@@ -317,17 +263,8 @@ app.get('/api/flocks', authenticateToken, async (req, res) => {
 // ==========================================
 app.post('/api/orders', authenticateToken, async (req, res) => {
     try {
-        const { order_delivery_address, order_total_price, items, isArabic } = req.body;
+        const { order_delivery_address, order_total_price, items } = req.body;
         const user_id = req.user.userId;
-        
-        // 🌟 لقط اللغة من الفلاتر مباشرة
-        let isEnglish = false;
-        if (isArabic !== undefined) {
-            isEnglish = (isArabic === false || isArabic === 'false');
-        } else {
-            const langHeader = req.headers['accept-language'] || 'ar';
-            isEnglish = langHeader.toLowerCase().includes('en');
-        }
 
         const { data: orderData, error: orderError } = await supabase
             .from('orders')
@@ -356,23 +293,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
             if (detailsError) throw detailsError;
         }
 
-        // 🔔 إشعار الطلبات المترجم
-        try {
-            const notifTitle = isEnglish ? "Your order has been placed 🛒" : "تم تسجيل طلبك الجديد 🛒";
-            const notifDesc = isEnglish
-                ? `Your order of EGP ${order_total_price} is under review and preparation.`
-                : `طلبك بمبلغ ${order_total_price} جنيه قيد المراجعة والتجهيز الآن.`;
-
-            await supabase.from('notifications').insert([{
-                user_id: user_id,
-                title: notifTitle,
-                description: notifDesc,
-                type: 'orders_status'
-            }]);
-        } catch (notifErr) {
-            console.error("Notification trigger error (Orders):", notifErr);
-        }
-
+        // تم مسح الإشعارات التلقائية من هنا ✅
         res.status(201).json({ message: "success", order_id: newOrderId });
 
     } catch (err) { 
@@ -402,17 +323,8 @@ app.get('/api/my-orders', authenticateToken, async (req, res) => {
 // ==========================================
 app.post('/api/calculations', authenticateToken, async (req, res) => {
     try {
-        const { animal_type, animal_count, daily_savings, standard_feed, alfalfa_amount, isArabic } = req.body;
+        const { animal_type, animal_count, daily_savings, standard_feed, alfalfa_amount } = req.body;
         
-        // 🌟 لقط اللغة لحسابات التوفير أيضاً
-        let isEnglish = false;
-        if (isArabic !== undefined) {
-            isEnglish = (isArabic === false || isArabic === 'false');
-        } else {
-            const langHeader = req.headers['accept-language'] || 'ar';
-            isEnglish = langHeader.toLowerCase().includes('en');
-        }
-
         const { data, error } = await supabase
             .from('feeding_calculations')
             .insert([{ 
@@ -427,23 +339,7 @@ app.post('/api/calculations', authenticateToken, async (req, res) => {
 
         if (error) throw error;
 
-        // 🔔 إشعار تلقائي باللغتين
-        try {
-            const notifTitle = isEnglish ? "New Savings Calculation 💰" : "حسبة توفير جديدة 💰";
-            const notifDesc = isEnglish
-                ? `You have calculated savings for (${animal_count || 0}) heads and achieved an excellent daily savings rate!`
-                : `لقد قمت بحساب التوفير لعدد (${animal_count || 0}) وحققت معدل توفير ممتاز يومياً!`;
-
-            await supabase.from('notifications').insert([{
-                user_id: req.user.userId,
-                title: notifTitle,
-                description: notifDesc,
-                type: 'savings'
-            }]);
-        } catch (notifErr) {
-            console.error("Notification trigger error (Calculations):", notifErr);
-        }
-
+        // تم مسح الإشعارات التلقائية من هنا ✅
         res.status(201).json({ message: "calc_saved", calculation: data[0] }); 
     } catch (err) { 
         console.error("Save Calculation Error:", err);
@@ -474,14 +370,30 @@ app.get('/api/calculations', authenticateToken, async (req, res) => {
 app.get('/api/notifications', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
+        // لقط اللغة من الهيدر لمعرفة ما إذا كان التطبيق بالإنجليزي
+        const langHeader = req.headers['accept-language'] || 'ar';
+        const isArabic = !langHeader.toLowerCase().includes('en');
+
+        // جلب الإشعارات الخاصة بالمستخدم أو الإعلانات العامة
         const { data, error } = await supabase
             .from('notifications')
             .select('*')
-            .eq('user_id', userId)
+            .or(`user_id.eq.${userId},user_id.is.null`)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
-        res.status(200).json(data);
+
+        // 🌟 تجهيز البيانات وترجمتها لتناسب الفلاتر مباشرة
+        const formattedNotifications = data.map(notif => ({
+            id: notif.id,
+            type: notif.type,
+            is_read: notif.is_read,
+            created_at: notif.created_at,
+            title: isArabic ? notif.title_ar : (notif.title_en || notif.title_ar),
+            description: isArabic ? notif.body_ar : (notif.body_en || notif.body_ar)
+        }));
+
+        res.status(200).json(formattedNotifications);
     } catch (err) {
         console.error("Get Notifications Endpoint Error:", err);
         res.status(500).json({ error: "server_error" });
@@ -504,6 +416,34 @@ app.put('/api/notifications/:id/read', authenticateToken, async (req, res) => {
     } catch (err) {
         console.error("Mark Notification Read Endpoint Error:", err);
         res.status(500).json({ error: "server_error" });
+    }
+});
+
+// ==========================================
+// 📢 مسار إضافة إعلانات/إشعارات من الإدارة (Admin)
+// ==========================================
+app.post('/api/admin/notifications', async (req, res) => {
+    const { title_ar, title_en, body_ar, body_en, type, user_id } = req.body;
+    
+    try {
+        const { data, error } = await supabase
+            .from('notifications')
+            .insert([{
+                title_ar,
+                title_en,
+                body_ar,
+                body_en,
+                type: type || 'announcement',
+                user_id: user_id || null // null تعني إرسال الإشعار لجميع المستخدمين
+            }])
+            .select();
+
+        if (error) throw error;
+
+        res.status(201).json({ message: "تم إرسال الإعلان بنجاح!", notification: data[0] });
+    } catch (err) {
+        console.error("Admin Notification Error:", err);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
